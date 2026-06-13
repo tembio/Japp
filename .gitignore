@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/
+logs/
+.env
+.DS_Store
+
+# Stray literal-tilde dir from a misexpanded ~ path — holds local tooling state
+~/

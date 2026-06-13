@@ -1,0 +1,617 @@
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { api } from './api.js';
+
+const normWord = (w) => (w ?? '').trim().replace(/\s+/g, '');
+
+// Finds the first lyric line containing the word. Vocabulary words are
+// dictionary forms while lyrics may conjugate them (思い出す → 思い出した),
+// so on no exact match the word is shortened from the end, down to 2 chars.
+function findLineForWord(lines, word) {
+  if (!word) return -1;
+  for (let len = word.length; len >= Math.min(word.length, 2); len--) {
+    const fragment = word.slice(0, len);
+    const idx = lines.findIndex((l) => l.kanji?.includes(fragment));
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+export const VOCAB_GROUP_ORDER = ['Nouns', 'Verbs', 'Adjectives', 'Adverbs', 'Expressions', 'Other'];
+
+// On hover-capable devices (desktop) tooltips are pure CSS hover; tap-to-open
+// is only for touch screens. Evaluated live so devtools mobile emulation and
+// convertible devices are detected correctly.
+const isTouch = () => window.matchMedia('(hover: none)').matches;
+
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const onChange = (e) => setMatches(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [query]);
+  return matches;
+}
+
+// partOfSpeech is free text from the AI ("verb (ichidan)", "na-adjective"…);
+// order matters: "adverb" contains "verb", "pronoun" contains "noun".
+export function vocabGroup(partOfSpeech = '') {
+  const p = partOfSpeech.toLowerCase();
+  if (/expression|idiom|phrase|interjection|onomatopoei/.test(p)) return 'Expressions';
+  if (p.includes('adverb')) return 'Adverbs';
+  if (p.includes('adject')) return 'Adjectives';
+  if (p.includes('verb')) return 'Verbs';
+  if (p.includes('noun')) return 'Nouns';
+  return 'Other';
+}
+
+// Splits the displayed line into plain text and interactive word spans by
+// walking the AI's word segmentation in order. Tokens that can't be located
+// in the text (model mismatch) degrade to plain text.
+function LineText({ line, script, lineIdx, openId, setOpenId }) {
+  const text = line[script];
+  const tokens = line.words ?? [];
+  const field = script === 'kana' ? 'reading' : script === 'romaji' ? 'romaji' : 'word';
+
+  const parts = [];
+  let pos = 0;
+  tokens.forEach((token, j) => {
+    const surface = token[field];
+    if (!surface?.trim()) return;
+    const haystack = script === 'romaji' ? text.toLowerCase() : text;
+    const needle = script === 'romaji' ? surface.toLowerCase() : surface;
+    const idx = haystack.indexOf(needle, pos);
+    if (idx === -1) return;
+    if (idx > pos) parts.push(text.slice(pos, idx));
+    parts.push({ token, surface: text.slice(idx, idx + surface.length), id: `${lineIdx}-${j}` });
+    pos = idx + surface.length;
+  });
+  if (pos < text.length) parts.push(text.slice(pos));
+
+  return parts.map((part, k) => {
+    if (typeof part === 'string') return part;
+    const { token, surface, id } = part;
+    return (
+      <Token key={k} token={token} surface={surface} id={id} openId={openId} setOpenId={setOpenId} />
+    );
+  });
+}
+
+function Token({ token, surface, id, openId, setOpenId }) {
+  const ref = useRef(null);
+  const [shift, setShift] = useState(0);
+  const [below, setBelow] = useState(false);
+
+  // The tip is centered on the word; once visible, measure it and nudge it
+  // horizontally so it never overflows the viewport, and flip it below the
+  // word when there isn't room above (e.g. the first line).
+  function clampTip() {
+    requestAnimationFrame(() => {
+      const tip = ref.current?.querySelector('.tip');
+      if (!tip) return;
+      const rect = tip.getBoundingClientRect();
+      if (!rect.width) return;
+      const margin = 8;
+      const vw = document.documentElement.clientWidth;
+      let delta = 0;
+      if (rect.left < margin) delta = margin - rect.left;
+      else if (rect.right > vw - margin) delta = vw - margin - rect.right;
+      if (delta) setShift((prev) => prev + delta);
+      const wordRect = ref.current.getBoundingClientRect();
+      setBelow(wordRect.top - rect.height - 10 < margin);
+    });
+  }
+
+  return (
+    <span
+      ref={ref}
+      className={`token ${openId === id ? 'open' : ''}`}
+      onMouseEnter={clampTip}
+      onClick={(e) => {
+        if (!isTouch()) return;
+        e.stopPropagation();
+        setOpenId(openId === id ? null : id);
+        clampTip();
+      }}
+    >
+      {surface}
+      <span
+        className={`tip ${below ? 'below' : ''}`}
+        style={{ transform: `translateX(calc(-50% + ${shift}px))` }}
+      >
+        <span className="tip-inner">
+          <span className="tip-word jp">{token.word}</span>
+          {token.reading && token.reading !== token.word && (
+            <span className="tip-reading jp">{token.reading}</span>
+          )}
+          <span className="tip-romaji">{token.romaji}</span>
+          <span className="tip-divider" />
+          <span className="tip-meaning">{token.meaning}</span>
+        </span>
+      </span>
+    </span>
+  );
+}
+
+export default function SongView({
+  song,
+  focus,
+  onNavigate,
+  clearFocus,
+  onLearntChange,
+  onSavedChange,
+}) {
+  const [script, setScript] = useState('kanji');
+  const [showRomaji, setShowRomaji] = useState(
+    () => localStorage.getItem('showRomaji') !== 'false'
+  );
+  const [showTranslation, setShowTranslation] = useState(
+    () => localStorage.getItem('showTranslation') !== 'false'
+  );
+  const [openTokenId, setOpenTokenId] = useState(null);
+  const [learnt, setLearnt] = useState(() => new Set());
+  const [saved, setSaved] = useState(() => new Set());
+  const [showLearnt, setShowLearnt] = useState(
+    () => localStorage.getItem('showLearnt') === 'true'
+  );
+  const [showRomajiCol, setShowRomajiCol] = useState(
+    () => localStorage.getItem('showRomajiCol') !== 'false'
+  );
+
+  function toggleRomajiCol(on) {
+    setShowRomajiCol(on);
+    localStorage.setItem('showRomajiCol', on);
+  }
+
+  const [openSeen, setOpenSeen] = useState(null);
+  const [flashKey, setFlashKey] = useState(null);
+  const isMobile = useMediaQuery('(max-width: 720px)');
+  const [tab, setTab] = useState('lyrics'); // 'lyrics' | 'vocab' | 'grammar'
+  const [vocabFilter, setVocabFilter] = useState('All');
+  const [zoom, setZoom] = useState(null); // vocab entry shown large in a modal
+  const groupsRef = useRef(null);
+
+  // Desktop: make every group table as wide as the widest one (CSS can't
+  // "match the widest sibling"), then pin the container to exactly the number
+  // of columns that fit so it hugs the tables instead of filling the width.
+  useLayoutEffect(() => {
+    function layout() {
+      const container = groupsRef.current;
+      if (!container) return;
+      const groups = [...container.querySelectorAll('.vocab-group')];
+      groups.forEach((g) => (g.style.width = ''));
+      container.style.width = '';
+      if (isMobile || groups.length < 2) return;
+      const max = Math.max(...groups.map((g) => g.offsetWidth));
+      groups.forEach((g) => (g.style.width = `${max}px`));
+      const gap = 20;
+      const avail = (container.closest('.song-view') ?? container).clientWidth;
+      const cols = Math.max(1, Math.min(groups.length, Math.floor((avail + gap) / (max + gap))));
+      container.style.width = `${cols * max + (cols - 1) * gap}px`;
+    }
+    layout();
+    window.addEventListener('resize', layout);
+    return () => window.removeEventListener('resize', layout);
+  });
+
+  useEffect(() => {
+    api.getLearnt().then((words) => setLearnt(new Set(words))).catch(() => {});
+    api.getSaved().then((words) => setSaved(new Set(words))).catch(() => {});
+  }, []);
+
+  // After navigating from a "seen in" popup / study hint, switch to the right
+  // tab, make the target visible, then scroll to it and flash it.
+  useEffect(() => {
+    if (!focus) return;
+    let elementId = `${focus.kind}-${focus.key}`;
+    if (focus.kind === 'vocab') {
+      const lineIdx = findLineForWord(song.lines ?? [], focus.key);
+      if (lineIdx >= 0) {
+        setTab('lyrics');
+        elementId = `line-${lineIdx}`;
+      } else {
+        setTab('vocab');
+        setVocabFilter('All');
+        if (learnt.has(focus.key)) setShowLearnt(true);
+        elementId = `vocab-${focus.key}`;
+      }
+    } else if (focus.kind === 'vocab-row') {
+      setTab('vocab');
+      setVocabFilter('All');
+      if (learnt.has(focus.key)) setShowLearnt(true);
+      elementId = `vocab-${focus.key}`;
+    } else if (focus.kind === 'grammar') {
+      setTab('grammar');
+    }
+    const t = setTimeout(() => {
+      document.getElementById(elementId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setFlashKey(elementId);
+      clearFocus();
+      setTimeout(() => setFlashKey(null), 2500);
+    }, 120);
+    return () => clearTimeout(t);
+  }, [focus, song.id]);
+
+  function SeenBadge({ seenIn, badgeId, kind, itemKey }) {
+    if (!seenIn?.length) return null;
+    const open = openSeen === badgeId;
+    return (
+      <span className="seen-badge-wrap">
+        <button
+          className="seen-badge"
+          title={`Seen in ${seenIn.length} previous song${seenIn.length > 1 ? 's' : ''} — click for details`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpenSeen(open ? null : badgeId);
+          }}
+        >
+          <span className="sb-arrow">↻</span> {seenIn.length}
+        </button>
+        {open && (
+          <span className="seen-pop" onClick={(e) => e.stopPropagation()}>
+            <span className="seen-pop-title">Seen before in</span>
+            {seenIn.map((s, i) =>
+              typeof s === 'string' ? (
+                <span key={i} className="seen-pop-item plain">
+                  {s}
+                </span>
+              ) : (
+                <button
+                  key={i}
+                  className="seen-pop-item"
+                  onClick={() => {
+                    setOpenSeen(null);
+                    onNavigate(s.id, { kind, key: itemKey });
+                  }}
+                >
+                  {s.title}
+                  {s.artist ? ` — ${s.artist}` : ''}
+                </button>
+              )
+            )}
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  function toggleShowLearnt(on) {
+    setShowLearnt(on);
+    localStorage.setItem('showLearnt', on);
+  }
+
+  function toggleLearnt(word) {
+    const key = normWord(word);
+    const next = new Set(learnt);
+    if (next.has(key)) {
+      next.delete(key);
+      api.removeLearnt(key).then(onLearntChange).catch(() => {});
+    } else {
+      next.add(key);
+      api.addLearnt(key).then(onLearntChange).catch(() => {});
+    }
+    setLearnt(next);
+  }
+
+  function toggleSaved(word) {
+    const key = normWord(word);
+    const next = new Set(saved);
+    if (next.has(key)) {
+      next.delete(key);
+      api.removeSaved(key).then(onSavedChange).catch(() => {});
+    } else {
+      next.add(key);
+      api.addSaved(key).then(onSavedChange).catch(() => {});
+    }
+    setSaved(next);
+  }
+
+  function toggleRomaji(on) {
+    setShowRomaji(on);
+    localStorage.setItem('showRomaji', on);
+  }
+
+  function toggleTranslation(on) {
+    setShowTranslation(on);
+    localStorage.setItem('showTranslation', on);
+  }
+  const learntCount = song.vocabulary.filter((v) => learnt.has(normWord(v.word))).length;
+  const visibleVocab = showLearnt
+    ? song.vocabulary
+    : song.vocabulary.filter((v) => !learnt.has(normWord(v.word)));
+
+  // Groups (with counts) present in the currently visible vocabulary.
+  const presentGroups = VOCAB_GROUP_ORDER.map((g) => ({
+    group: g,
+    entries: visibleVocab.filter((v) => vocabGroup(v.partOfSpeech) === g),
+  })).filter((x) => x.entries.length > 0);
+
+  function renderVocabTable(entries) {
+    return (
+      <table>
+        <tbody>
+          {entries.map((v, i) => {
+            const isLearnt = learnt.has(normWord(v.word));
+            const isSaved = saved.has(normWord(v.word));
+            const rowId = `vocab-${normWord(v.word)}`;
+            const rowClass = `${isLearnt ? 'learnt' : ''} ${flashKey === rowId ? 'flash' : ''}`;
+            const badge = (
+              <SeenBadge seenIn={v.seenIn} badgeId={rowId} kind="vocab" itemKey={normWord(v.word)} />
+            );
+            const saveBtn = (
+              <button
+                className={`save-btn ${isSaved ? 'on' : ''}`}
+                title={isSaved ? 'Remove from Words' : 'Save to Words'}
+                onClick={() => toggleSaved(v.word)}
+              >
+                {isSaved ? '★' : '☆'}
+              </button>
+            );
+            const learnBtn = (
+              <button
+                className={`learn-btn ${isLearnt ? 'on' : ''}`}
+                title={isLearnt ? 'Mark as not learnt' : 'Mark as learnt'}
+                onClick={() => toggleLearnt(v.word)}
+              >
+                ✓
+              </button>
+            );
+            return isMobile ? (
+              <tr key={i} id={rowId} className={rowClass}>
+                <td className="word-cell" title={v.partOfSpeech}>
+                  <span className="jp w-main word-zoom" onClick={() => setZoom(v)}>
+                    {v.word}
+                  </span>
+                  {v.reading !== v.word && <span className="jp w-reading">{v.reading}</span>}
+                  {showRomajiCol && <span className="w-romaji">{v.romaji}</span>}
+                </td>
+                <td>{v.meaning}</td>
+                <td className="row-actions-m">
+                  <div className="actions-wrap">
+                    {badge}
+                    {saveBtn}
+                    {learnBtn}
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              <tr key={i} id={rowId} className={rowClass}>
+                <td className="jp word-zoom" title={v.partOfSpeech} onClick={() => setZoom(v)}>
+                  {v.word}
+                </td>
+                <td className="jp">{v.reading}</td>
+                {showRomajiCol && <td>{v.romaji}</td>}
+                <td className="meaning-cell">{v.meaning}</td>
+                <td className="row-actions">
+                  <div className="actions-wrap">
+                    {badge}
+                    {saveBtn}
+                    {learnBtn}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    );
+  }
+
+  return (
+    <div
+      className="song-view"
+      onClick={() => {
+        if (openTokenId) setOpenTokenId(null);
+        if (openSeen) setOpenSeen(null);
+      }}
+    >
+      <header className="song-header">
+        <div className="song-header-main">
+          <h2>{song.title}</h2>
+          {song.artist && <p className="artist">{song.artist}</p>}
+        </div>
+        {tab === 'lyrics' && (
+          <div className="header-toggles">
+            <label className="romaji-toggle">
+              <input
+                type="checkbox"
+                checked={script === 'kana'}
+                onChange={(e) => setScript(e.target.checked ? 'kana' : 'kanji')}
+              />
+              <span className="switch" aria-hidden="true" />
+              kana
+            </label>
+            <label className="romaji-toggle">
+              <input
+                type="checkbox"
+                checked={showRomaji}
+                onChange={(e) => toggleRomaji(e.target.checked)}
+              />
+              <span className="switch" aria-hidden="true" />
+              rōmaji
+            </label>
+            <label className="romaji-toggle" title="translation">
+              <input
+                type="checkbox"
+                checked={showTranslation}
+                onChange={(e) => toggleTranslation(e.target.checked)}
+              />
+              <span className="switch" aria-hidden="true" />
+              <span className="tl-icon">文A</span>
+            </label>
+          </div>
+        )}
+        {tab === 'vocab' && (
+          <div className="header-toggles">
+            <label className="romaji-toggle">
+              <input
+                type="checkbox"
+                checked={showRomajiCol}
+                onChange={(e) => toggleRomajiCol(e.target.checked)}
+              />
+              <span className="switch" aria-hidden="true" />
+              rōmaji
+            </label>
+            <label className="romaji-toggle">
+              <input
+                type="checkbox"
+                checked={showLearnt}
+                onChange={(e) => toggleShowLearnt(e.target.checked)}
+              />
+              <span className="switch" aria-hidden="true" />
+              show learnt
+            </label>
+          </div>
+        )}
+      </header>
+
+      <div className="song-nav">
+        <div className="song-tabs">
+          <button className={tab === 'lyrics' ? 'active' : ''} onClick={() => setTab('lyrics')}>
+            Lyrics
+          </button>
+          <button className={tab === 'vocab' ? 'active' : ''} onClick={() => setTab('vocab')}>
+            Vocab <span className="tab-count">{song.vocabulary.length}</span>
+          </button>
+          <button className={tab === 'grammar' ? 'active' : ''} onClick={() => setTab('grammar')}>
+            Grammar <span className="tab-count">{song.grammar.length}</span>
+          </button>
+        </div>
+
+        {tab === 'vocab' && (
+          <>
+            <div className="vocab-chips">
+              <button
+                className={`type-chip ${vocabFilter === 'All' ? 'active' : ''}`}
+                onClick={() => setVocabFilter('All')}
+              >
+                All <span className="chip-count">{visibleVocab.length}</span>
+              </button>
+              {presentGroups.map(({ group, entries }) => (
+                <button
+                  key={group}
+                  className={`type-chip ${vocabFilter === group ? 'active' : ''}`}
+                  onClick={() => setVocabFilter(group)}
+                >
+                  {group} <span className="chip-count">{entries.length}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {tab === 'lyrics' && (
+        <section className="card tab-panel" key="lyrics">
+          <div className="lyrics">
+            {song.lines.map((line, i) => {
+              if (!line[script]?.trim()) return <p key={i} className="gap" />;
+              const isChorus = line.section === 'chorus';
+              const startsChorus =
+                isChorus &&
+                song.lines.slice(0, i).findLast((l) => l[script]?.trim())?.section !== 'chorus';
+              return (
+                <div
+                  key={i}
+                  id={`line-${i}`}
+                  className={`line ${isChorus ? 'chorus' : ''} ${flashKey === `line-${i}` ? 'flash' : ''}`}
+                >
+                  {startsChorus && <span className="section-label">サビ Chorus</span>}
+                  <p>
+                    <LineText
+                      line={line}
+                      script={script}
+                      lineIdx={i}
+                      openId={openTokenId}
+                      setOpenId={setOpenTokenId}
+                    />
+                  </p>
+                  {showRomaji && line.romaji?.trim() && (
+                    <p className="romaji-sub">{line.romaji}</p>
+                  )}
+                  {showTranslation && line.translation?.trim() && (
+                    <p className="translation-sub">{line.translation}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {tab === 'vocab' && (
+        <section className="card tab-panel" key={`vocab-${vocabFilter}`}>
+          {visibleVocab.length === 0 ? (
+            <p className="muted">
+              All {song.vocabulary.length} words of this song are marked as learnt. Nice work! Flip
+              the “show learnt” toggle to see them.
+            </p>
+          ) : (
+            <div className="vocab-groups" ref={groupsRef}>
+              {(vocabFilter === 'All'
+                ? presentGroups
+                : presentGroups.filter((g) => g.group === vocabFilter)
+              ).map(({ group, entries }) => (
+                <div key={group} className="vocab-group">
+                  {vocabFilter === 'All' && (
+                    <h4>
+                      {group} <span className="count">{entries.length}</span>
+                    </h4>
+                  )}
+                  {renderVocabTable(entries)}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === 'grammar' && (
+        <section className="card tab-panel" key="grammar">
+          <div className="grammar-list">
+            {song.grammar.map((g, i) => {
+              const itemId = `grammar-${normWord(g.pattern)}`;
+              return (
+                <div
+                  key={i}
+                  id={itemId}
+                  className={`grammar-item ${flashKey === itemId ? 'flash' : ''}`}
+                >
+                  <div className="grammar-title">
+                    <span className="jp pattern">{g.pattern}</span>
+                    <span className="label">{g.label}</span>
+                    <SeenBadge
+                      seenIn={g.seenIn}
+                      badgeId={itemId}
+                      kind="grammar"
+                      itemKey={normWord(g.pattern)}
+                    />
+                  </div>
+                  <p>{g.explanation}</p>
+                  {g.example && <p className="example jp">「{g.example}」</p>}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {zoom && (
+        <div className="zoom-overlay" onClick={() => setZoom(null)}>
+          <div className="zoom-card" onClick={(e) => e.stopPropagation()}>
+            <button className="zoom-close" title="Close" onClick={() => setZoom(null)}>
+              ×
+            </button>
+            <span className="jp zoom-word">{zoom.word}</span>
+            {zoom.reading !== zoom.word && <span className="jp zoom-reading">{zoom.reading}</span>}
+            {zoom.romaji && <span className="zoom-romaji">{zoom.romaji}</span>}
+            <span className="zoom-divider" />
+            <span className="zoom-meaning">{zoom.meaning}</span>
+            {zoom.partOfSpeech && <span className="zoom-pos">{zoom.partOfSpeech}</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
