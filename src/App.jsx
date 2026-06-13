@@ -337,8 +337,13 @@ export default function App() {
               <p className="muted">No songs yet — analyze your first one!</p>
             )}
             <div className="songs-list">
-              {songs.map((s) => (
-                <div key={s.id} className="song-row" onClick={() => openSong(s.id)}>
+              {songs.map((s, i) => (
+                <div
+                  key={s.id}
+                  className="song-row"
+                  style={{ animationDelay: `${Math.min(i, 12) * 0.05}s` }}
+                  onClick={() => openSong(s.id)}
+                >
                   <div className="song-row-main">
                     <span className="jp song-row-title">{s.title}</span>
                     {s.artist && <span className="jp song-row-artist">{s.artist}</span>}
@@ -350,12 +355,22 @@ export default function App() {
                   <button
                     className="delete-btn"
                     title="Delete"
+                    aria-label="Delete song"
                     onClick={(e) => {
                       e.stopPropagation();
                       removeSong(s.id);
                     }}
                   >
-                    ×
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                      <path
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4 7h16M10 11v6M14 11v6M5 7l1 13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-13M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"
+                      />
+                    </svg>
                   </button>
                 </div>
               ))}

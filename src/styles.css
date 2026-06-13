@@ -20,6 +20,12 @@
   --shadow-lg: 0 4px 10px rgba(43, 36, 25, 0.1), 0 12px 32px rgba(43, 36, 25, 0.12);
   --radius: 10px;
   --radius-lg: 14px;
+  /* Glassmorphism: frosted translucent white with a soft glass edge. */
+  --glass-bg: rgba(255, 255, 255, 0.45);
+  --glass-bg-strong: rgba(255, 255, 255, 0.58);
+  --glass-border-color: rgba(255, 255, 255, 0.6);
+  --glass-blur: blur(16px);
+  --glass-shadow: 0 4px 30px rgba(0, 0, 0, 0.03);
   --font-ui: 'Inter', -apple-system, 'Segoe UI', sans-serif;
   --font-jp: 'Noto Sans JP', 'Hiragino Sans', sans-serif;
 }
@@ -36,6 +42,26 @@ body {
   line-height: 1.6;
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Big faded 歌 watermark behind everything — gives the glass cards something
+   to diffuse, and ties the background to the app's logo. Fixed so cards drift
+   over it as you scroll. */
+body::before {
+  content: '歌';
+  position: fixed;
+  top: 50%;
+  left: 60%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-jp);
+  font-size: 92vmin;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0.06;
+  pointer-events: none;
+  user-select: none;
+  z-index: -1;
 }
 
 .layout {
@@ -283,32 +309,65 @@ body {
 .songs-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
   max-width: 760px;
 }
 
+/* Glassmorphism card: frosted semi-transparent white with a soft glass edge,
+   blurred backdrop, generously rounded corners, and an extremely soft shadow. */
 .song-row {
+  position: relative;
   display: flex;
+  flex-direction: row;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 18px;
+  background-color: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 20px;
+  padding: 20px;
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  box-shadow: var(--glass-shadow);
+  /* Entrance + hover use `top`/opacity rather than `transform`: a transform
+     would suspend this card's own backdrop-filter while it runs, flattening the
+     glass. `backwards` holds the start frame through the staggered delay. */
+  transition: top 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+  animation: card-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    top: 16px;
+  }
+  to {
+    opacity: 1;
+    top: 0;
+  }
 }
 
 .song-row:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
+  top: -2px;
+  background-color: var(--glass-bg-strong);
+  box-shadow: 0 6px 34px rgba(0, 0, 0, 0.05);
+}
+
+.song-row:active {
+  top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .song-row {
+    animation: none;
+  }
 }
 
 .song-row-title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 600;
+  color: #2d2d2d;
 }
 
 .song-row-artist {
@@ -318,36 +377,30 @@ body {
 }
 
 .song-row-meta {
-  font-size: 12.5px;
-  color: var(--text-soft);
-  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 400;
+  color: #757575;
+  margin-top: 4px;
 }
 
 .delete-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
-  color: var(--text-faint);
-  font-size: 18px;
+  color: #a0a0a0;
   line-height: 1;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-  visibility: hidden;
-}
-
-.song-row:hover .delete-btn {
-  visibility: visible;
+  padding: 8px;
+  border-radius: 10px;
+  transition: color 0.14s ease, background 0.14s ease;
 }
 
 .delete-btn:hover {
   color: var(--error);
   background: var(--error-bg);
-}
-
-@media (hover: none) {
-  .delete-btn {
-    visibility: visible;
-  }
 }
 
 /* ---------- Config page ---------- */
@@ -750,11 +803,19 @@ textarea {
 
 /* ---------- Tab / filter transitions ---------- */
 .tab-panel {
-  /* `backwards` (not `both`): hold the start frame before the animation runs to
-     avoid a flash, but DON'T retain a transform afterwards — a lingering
-     transform creates a stacking context that would trap word tooltips beneath
-     the sticky tab bar. */
-  animation: panel-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  /* Opacity-only fade (no transform): a transform on this container would
+     suspend `backdrop-filter` on the glass cards inside it for the duration of
+     the animation, making them flatten then "pop" frosted when it ends. */
+  animation: panel-fade 0.34s ease backwards;
+}
+
+@keyframes panel-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes panel-in {
@@ -846,12 +907,14 @@ textarea {
 }
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  background-color: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 20px;
   padding: 24px 28px;
   margin-top: 16px;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--glass-shadow);
 }
 
 .card h3 {
@@ -1670,15 +1733,18 @@ tr.learnt td.jp {
 }
 
 .grammar-item {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 16px;
   padding: 14px 18px;
-  background: var(--surface);
-  transition: border-color 0.12s ease;
+  background-color: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+  transition: background-color 0.12s ease;
 }
 
 .grammar-item:hover {
-  border-color: var(--border-strong);
+  background-color: var(--glass-bg-strong);
 }
 
 .grammar-item.flash {
@@ -1829,11 +1895,13 @@ tr.learnt td.jp {
   grid-template-columns: minmax(140px, 200px) minmax(160px, 1fr) minmax(180px, 1fr) auto;
   gap: 14px;
   align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 18px;
-  box-shadow: var(--shadow-sm);
+  background-color: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 18px;
+  padding: 14px 20px;
+  box-shadow: var(--glass-shadow);
   /* Re-runs when the "include learnt" filter re-keys the list, cascading the
      rows in (per-row delay set inline). `backwards` holds the start frame so
      there's no flash before the staggered delay kicks in. */
@@ -2176,10 +2244,12 @@ tr.learnt td.jp {
   justify-content: center;
   gap: 10px;
   min-height: 280px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
+  background-color: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 20px;
+  box-shadow: var(--glass-shadow);
   padding: 32px;
   cursor: pointer;
   text-align: center;
@@ -2507,10 +2577,13 @@ tr.learnt td.jp {
   grid-template-columns: minmax(80px, 150px) minmax(80px, 140px) 1fr auto;
   gap: 12px;
   align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 9px 16px;
+  background-color: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 16px;
+  padding: 11px 18px;
+  box-shadow: var(--glass-shadow);
 }
 
 .summary-row.hit {
