@@ -258,7 +258,7 @@ body::before {
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border-color);
   border-radius: 20px;
-  padding: 20px;
+  padding: 10px;
   cursor: pointer;
   box-shadow: var(--glass-shadow);
   /* Entrance + hover use `top`/opacity rather than `transform`: a transform

@@ -349,8 +349,7 @@ export default function App() {
                     <span className="jp song-row-title">{s.title}</span>
                     {s.artist && <span className="jp song-row-artist">{s.artist}</span>}
                     <div className="song-row-meta">
-                      {new Date(s.addedAt).toLocaleDateString()} · {s.vocabCount} words ·{' '}
-                      {s.grammarCount} grammar patterns
+                      {s.vocabCount} words · {s.grammarCount} grammar patterns
                     </div>
                   </div>
                   <button
