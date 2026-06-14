@@ -189,119 +189,50 @@ body::before {
   color: var(--accent-strong);
 }
 
+/* Soften the brown/terracotta of the Study controls — chips, buttons, toggles,
+   progress, badges all read from these accent vars, so overriding them here
+   scopes the softer tone to the Study section only. */
+.study-page {
+  --accent: #ba6047;
+  --accent-strong: #a64f37;
+  --accent-tint: #f9efe9;
+  --accent-soft: #e3b9a7;
+}
+
 /* ---------- Page titles ---------- */
 .history-page h2,
 .intake h2 {
-  position: relative;
   margin: 0 0 24px;
-  padding-bottom: 14px;
-  font-size: 30px;
+  font-size: 40px;
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.1;
-  /* Flowing gradient text fill that shimmers across the title. */
-  background: linear-gradient(
-    100deg,
-    var(--accent-strong) 0%,
-    var(--accent) 22%,
-    var(--repeat) 42%,
-    var(--accent) 62%,
-    var(--accent-strong) 100%
-  );
-  background-size: 220% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  animation: title-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) both,
-    title-shine 7s ease-in-out 0.7s infinite;
+  color: #000;
+  text-decoration: none;
+  /* Replays on every page change — the page content is keyed by view, so the
+     title remounts and re-runs this entrance. */
+  animation: title-enter 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Long accent underline that draws in from the left, with a flowing gradient
-   and a soft glow that pulses. */
 .history-page h2::after,
 .intake h2::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 132px;
-  height: 4px;
-  border-radius: 4px;
-  background: linear-gradient(
-    90deg,
-    var(--accent-strong),
-    var(--accent) 35%,
-    var(--repeat) 65%,
-    var(--accent-soft) 90%,
-    transparent
-  );
-  transform-origin: left center;
-  animation: title-underline 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 0.16s both,
-    underline-glow 2.8s ease-in-out 1s infinite;
+  content: none;
 }
 
-@keyframes title-shine {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
-
-@keyframes underline-glow {
-  0%,
-  100% {
-    box-shadow: 0 1px 6px rgba(181, 72, 42, 0.22);
-  }
-  50% {
-    box-shadow: 0 1px 16px rgba(181, 72, 42, 0.5);
-  }
-}
-
-/* Focus-in: the title slides up out of a blur while its letters spread apart
-   then snap to the final tracking. */
-@keyframes title-in {
-  0% {
+@keyframes title-enter {
+  from {
     opacity: 0;
-    transform: translateY(16px);
-    letter-spacing: 0.2em;
-    filter: blur(6px);
+    transform: translateY(14px);
   }
-  55% {
-    opacity: 1;
-    filter: blur(0);
-  }
-  100% {
+  to {
     opacity: 1;
     transform: none;
-    letter-spacing: -0.02em;
-    filter: blur(0);
-  }
-}
-
-/* Springy wipe: the underline overshoots its width then settles. */
-@keyframes title-underline {
-  0% {
-    transform: scaleX(0);
-    opacity: 0;
-  }
-  60% {
-    opacity: 1;
-  }
-  100% {
-    transform: scaleX(1);
-    opacity: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .history-page h2,
-  .intake h2,
-  .history-page h2::after,
-  .intake h2::after {
+  .intake h2 {
     animation: none;
   }
 }
@@ -722,6 +653,108 @@ textarea {
   letter-spacing: -1px;
 }
 
+/* ---------- Vocab filter dropdown ---------- */
+.vocab-filter {
+  position: relative;
+  display: inline-flex;
+}
+
+.filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-soft);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 6px 13px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.filter-btn:hover {
+  border-color: var(--accent-soft);
+  color: var(--text);
+}
+
+.filter-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.filter-label {
+  letter-spacing: -0.01em;
+}
+
+.filter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  animation: menu-pop 0.16s ease;
+}
+
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.filter-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.filter-option:hover {
+  background: var(--surface-soft);
+}
+
+.filter-option.active {
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+.filter-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.filter-option.active .filter-count {
+  color: var(--accent-strong);
+}
+
 
 .artist {
   margin: 3px 0 0;
@@ -907,9 +940,10 @@ textarea {
 }
 
 .card {
+  /* No backdrop-filter here: it creates a stacking context that would trap the
+     word tooltips inside this panel, leaving them covered by the sticky
+     lyrics/vocab/grammar bar. The translucent bg keeps the frosted look. */
   background-color: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border-color);
   border-radius: 20px;
   padding: 24px 28px;
@@ -1132,7 +1166,7 @@ textarea {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 253, 250, 0.82);
+  background: rgba(255, 254, 252, 0.92);
   backdrop-filter: blur(18px) saturate(1.3);
   -webkit-backdrop-filter: blur(18px) saturate(1.3);
   border: 1px solid rgba(255, 255, 255, 0.6);
@@ -1266,6 +1300,8 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   margin: 0;
   padding: 10px 14px;
   border-radius: 9px 9px 0 0;
@@ -1275,8 +1311,18 @@ textarea {
   color: var(--accent-strong);
   background: var(--accent-tint);
   border-bottom: 1px solid var(--border);
-  cursor: pointer;
   user-select: none;
+}
+
+/* Toggles + filter living in the first group's header, beside the count. */
+.vg-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-left: auto;
+  font-weight: 400;
+  letter-spacing: normal;
 }
 
 .vocab-group h4.collapsed {
@@ -1321,7 +1367,7 @@ table {
 
 .word-cell .w-main {
   display: block;
-  font-size: 16px;
+  font-size: 22px;
 }
 
 .word-cell .w-reading {
@@ -1438,7 +1484,7 @@ td.jp {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 253, 250, 0.82);
+  background: rgba(255, 254, 252, 0.92);
   backdrop-filter: blur(18px) saturate(1.3);
   -webkit-backdrop-filter: blur(18px) saturate(1.3);
   border: 1px solid rgba(255, 255, 255, 0.6);
@@ -1543,6 +1589,22 @@ td.jp {
   .tip-divider,
   .tip-pos {
     display: none;
+  }
+
+  /* Drop the card wrapper around the vocab table on mobile so the table gets
+     more width, but keep it inside the main padding so the background still
+     shows on the sides. */
+  .card.vocab-card {
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+  }
+
+  /* Less side padding so the inner grammar cards get more width. */
+  .card.grammar-card {
+    padding: 8px 8px;
   }
 }
 
@@ -1733,12 +1795,12 @@ tr.learnt td.jp {
 }
 
 .grammar-item {
+  /* No backdrop-filter: it would trap the "seen in" popup inside this item,
+     hidden behind the sticky bar (same reason as .card). */
   border: 1px solid var(--glass-border-color);
   border-radius: 16px;
   padding: 14px 18px;
   background-color: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-shadow);
   transition: background-color 0.12s ease;
 }
@@ -2695,6 +2757,42 @@ tr.learnt td.jp {
     letter-spacing: -0.02em;
   }
 
+  /* Slot on the right of the top bar; the song view portals its lyrics toggles
+     in here on mobile. */
+  .mobile-bar-slot {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+  }
+
+  .topbar-toggles {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  /* Compact toggles so the full set fits in the top bar. */
+  .topbar-toggles .romaji-toggle {
+    font-size: 13px;
+    gap: 5px;
+  }
+
+  .topbar-toggles .switch {
+    width: 28px;
+    height: 16px;
+  }
+
+  .topbar-toggles .switch::after {
+    width: 11px;
+    height: 11px;
+    top: 2.5px;
+    left: 3px;
+  }
+
+  .topbar-toggles input:checked + .switch::after {
+    transform: translateX(11px);
+  }
+
   .logo-mark.small {
     width: 27px;
     height: 27px;
@@ -2720,18 +2818,28 @@ tr.learnt td.jp {
   }
 
   .main {
-    padding: 24px 18px 56px;
+    padding: 18px 18px 56px;
+  }
+
+  .song-nav {
+    padding-top: 0;
+    margin-top: 0;
+  }
+
+  .card {
+    padding: 5px 28px;
+    margin-top: 10px;
   }
 
   /* Stronger glass on mobile so the transparency reads clearly. */
   .zoom-card {
-    background: rgba(255, 253, 250, 0.66);
+    background: rgba(255, 254, 252, 0.88);
     backdrop-filter: blur(22px) saturate(1.4);
     -webkit-backdrop-filter: blur(22px) saturate(1.4);
   }
 
   .tip-inner {
-    background: rgba(255, 253, 250, 0.7);
+    background: rgba(255, 254, 252, 0.9);
     backdrop-filter: blur(20px) saturate(1.4);
     -webkit-backdrop-filter: blur(20px) saturate(1.4);
   }

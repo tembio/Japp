@@ -207,7 +207,7 @@ export default function Study({ active, onLearntChange, onOpenSong }) {
   /* ---------- setup ---------- */
   if (phase === 'setup') {
     return (
-      <div className="history-page">
+      <div className="history-page study-page">
         <h2>Study</h2>
         <section className="config-section">
           <h3>Words</h3>
@@ -308,7 +308,7 @@ export default function Study({ active, onLearntChange, onOpenSong }) {
     // Words written purely in kanji get their kana reading shown upfront.
     const kanjiOnly = !/[぀-ヿ]/.test(card.word) && /[一-鿿]/.test(card.word);
     return (
-      <div className="history-page study-session">
+      <div className="history-page study-page study-session">
         <div className="study-top">
           <span className="study-progress-label">
             {idx + 1} / {cards.length}
@@ -450,7 +450,7 @@ export default function Study({ active, onLearntChange, onOpenSong }) {
   const correct = results.filter((r) => r.correct);
   const missed = results.filter((r) => !r.correct);
   return (
-    <div className="history-page">
+    <div className="history-page study-page">
       <h2>Session complete</h2>
       <p className="study-score">
         You got <strong>{correct.length}</strong> of <strong>{results.length}</strong> right

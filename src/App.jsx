@@ -253,6 +253,7 @@ export default function App() {
           <span className="logo-mark small">歌</span>
           Japp
         </span>
+        <div className="mobile-bar-slot" id="mobile-bar-slot" />
       </header>
       {menuOpen && <div className="backdrop" onClick={() => setMenuOpen(false)} />}
       <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>

@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from './api.js';
 
 const normWord = (w) => (w ?? '').trim().replace(/\s+/g, '');
@@ -169,8 +170,27 @@ export default function SongView({
   const isMobile = useMediaQuery('(max-width: 720px)');
   const [tab, setTab] = useState('lyrics'); // 'lyrics' | 'vocab' | 'grammar'
   const [vocabFilter, setVocabFilter] = useState('All');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef(null);
   const [zoom, setZoom] = useState(null); // vocab entry shown large in a modal
   const groupsRef = useRef(null);
+
+  // Portal target in the global top app bar (mobile only) for the lyrics
+  // toggles. Resolved after mount so the DOM node exists.
+  const [topBarSlot, setTopBarSlot] = useState(null);
+  useEffect(() => {
+    setTopBarSlot(document.getElementById('mobile-bar-slot'));
+  }, []);
+
+  // Close the vocab filter dropdown on an outside click.
+  useEffect(() => {
+    if (!filterOpen) return;
+    function onDocClick(e) {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setFilterOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [filterOpen]);
 
   // Desktop: make every group table as wide as the widest one (CSS can't
   // "match the widest sibling"), then pin the container to exactly the number
@@ -398,6 +418,61 @@ export default function SongView({
     );
   }
 
+  const lyricsToggles = (
+    <>
+      <label className="romaji-toggle">
+        <input
+          type="checkbox"
+          checked={script === 'kana'}
+          onChange={(e) => setScript(e.target.checked ? 'kana' : 'kanji')}
+        />
+        <span className="switch" aria-hidden="true" />
+        kana
+      </label>
+      <label className="romaji-toggle">
+        <input
+          type="checkbox"
+          checked={showRomaji}
+          onChange={(e) => toggleRomaji(e.target.checked)}
+        />
+        <span className="switch" aria-hidden="true" />
+        rōmaji
+      </label>
+      <label className="romaji-toggle" title="translation">
+        <input
+          type="checkbox"
+          checked={showTranslation}
+          onChange={(e) => toggleTranslation(e.target.checked)}
+        />
+        <span className="switch" aria-hidden="true" />
+        <span className="tl-icon">文A</span>
+      </label>
+    </>
+  );
+
+  const vocabToggles = (
+    <>
+      <label className="romaji-toggle">
+        <input
+          type="checkbox"
+          checked={showRomajiCol}
+          onChange={(e) => toggleRomajiCol(e.target.checked)}
+        />
+        <span className="switch" aria-hidden="true" />
+        rōmaji
+      </label>
+      <label className="romaji-toggle">
+        <input
+          type="checkbox"
+          checked={showLearnt}
+          onChange={(e) => toggleShowLearnt(e.target.checked)}
+        />
+        <span className="switch" aria-hidden="true" />
+        learnt
+      </label>
+    </>
+  );
+
   return (
     <div
       className="song-view"
@@ -406,62 +481,71 @@ export default function SongView({
         if (openSeen) setOpenSeen(null);
       }}
     >
+      {/* On mobile the lyrics/vocab toggles live in the global top app bar; on
+          desktop they stay in the song header. */}
+      {tab === 'lyrics' &&
+        isMobile &&
+        topBarSlot &&
+        createPortal(<div className="topbar-toggles">{lyricsToggles}</div>, topBarSlot)}
+      {tab === 'vocab' &&
+        isMobile &&
+        topBarSlot &&
+        createPortal(<div className="topbar-toggles">{vocabToggles}</div>, topBarSlot)}
+
       <header className="song-header">
         <div className="song-header-main">
           <h2>{song.title}</h2>
           {song.artist && <p className="artist">{song.artist}</p>}
         </div>
-        {tab === 'lyrics' && (
-          <div className="header-toggles">
-            <label className="romaji-toggle">
-              <input
-                type="checkbox"
-                checked={script === 'kana'}
-                onChange={(e) => setScript(e.target.checked ? 'kana' : 'kanji')}
-              />
-              <span className="switch" aria-hidden="true" />
-              kana
-            </label>
-            <label className="romaji-toggle">
-              <input
-                type="checkbox"
-                checked={showRomaji}
-                onChange={(e) => toggleRomaji(e.target.checked)}
-              />
-              <span className="switch" aria-hidden="true" />
-              rōmaji
-            </label>
-            <label className="romaji-toggle" title="translation">
-              <input
-                type="checkbox"
-                checked={showTranslation}
-                onChange={(e) => toggleTranslation(e.target.checked)}
-              />
-              <span className="switch" aria-hidden="true" />
-              <span className="tl-icon">文A</span>
-            </label>
-          </div>
-        )}
+        {tab === 'lyrics' && !isMobile && <div className="header-toggles">{lyricsToggles}</div>}
         {tab === 'vocab' && (
           <div className="header-toggles">
-            <label className="romaji-toggle">
-              <input
-                type="checkbox"
-                checked={showRomajiCol}
-                onChange={(e) => toggleRomajiCol(e.target.checked)}
-              />
-              <span className="switch" aria-hidden="true" />
-              rōmaji
-            </label>
-            <label className="romaji-toggle">
-              <input
-                type="checkbox"
-                checked={showLearnt}
-                onChange={(e) => toggleShowLearnt(e.target.checked)}
-              />
-              <span className="switch" aria-hidden="true" />
-              show learnt
-            </label>
+            {!isMobile && vocabToggles}
+            <div className="vocab-filter" ref={filterRef}>
+              <button
+                className={`filter-btn ${vocabFilter !== 'All' ? 'active' : ''}`}
+                onClick={() => setFilterOpen((o) => !o)}
+                title="Filter by word type"
+                aria-label="Filter by word type"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 4h18v2l-7 7v6l-4-2v-4L3 6z"
+                  />
+                </svg>
+                <span className="filter-label">{vocabFilter}</span>
+              </button>
+              {filterOpen && (
+                <div className="filter-menu">
+                  <button
+                    className={`filter-option ${vocabFilter === 'All' ? 'active' : ''}`}
+                    onClick={() => {
+                      setVocabFilter('All');
+                      setFilterOpen(false);
+                    }}
+                  >
+                    All <span className="filter-count">{visibleVocab.length}</span>
+                  </button>
+                  {presentGroups.map(({ group, entries }) => (
+                    <button
+                      key={group}
+                      className={`filter-option ${vocabFilter === group ? 'active' : ''}`}
+                      onClick={() => {
+                        setVocabFilter(group);
+                        setFilterOpen(false);
+                      }}
+                    >
+                      {group} <span className="filter-count">{entries.length}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </header>
@@ -478,28 +562,6 @@ export default function SongView({
             Grammar <span className="tab-count">{song.grammar.length}</span>
           </button>
         </div>
-
-        {tab === 'vocab' && (
-          <>
-            <div className="vocab-chips">
-              <button
-                className={`type-chip ${vocabFilter === 'All' ? 'active' : ''}`}
-                onClick={() => setVocabFilter('All')}
-              >
-                All <span className="chip-count">{visibleVocab.length}</span>
-              </button>
-              {presentGroups.map(({ group, entries }) => (
-                <button
-                  key={group}
-                  className={`type-chip ${vocabFilter === group ? 'active' : ''}`}
-                  onClick={() => setVocabFilter(group)}
-                >
-                  {group} <span className="chip-count">{entries.length}</span>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
       </div>
 
       {tab === 'lyrics' && (
@@ -541,11 +603,11 @@ export default function SongView({
       )}
 
       {tab === 'vocab' && (
-        <section className="card tab-panel" key={`vocab-${vocabFilter}`}>
+        <section className="card vocab-card tab-panel" key={`vocab-${vocabFilter}`}>
           {visibleVocab.length === 0 ? (
             <p className="muted">
               All {song.vocabulary.length} words of this song are marked as learnt. Nice work! Flip
-              the “show learnt” toggle to see them.
+              the “learnt” toggle to see them.
             </p>
           ) : (
             <div className="vocab-groups" ref={groupsRef}>
@@ -568,7 +630,7 @@ export default function SongView({
       )}
 
       {tab === 'grammar' && (
-        <section className="card tab-panel" key="grammar">
+        <section className="card grammar-card tab-panel" key="grammar">
           <div className="grammar-list">
             {song.grammar.map((g, i) => {
               const itemId = `grammar-${normWord(g.pattern)}`;
