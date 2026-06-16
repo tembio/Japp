@@ -183,6 +183,17 @@ function save(db) {
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 }
 
+// One-time dump of the legacy file-backed library, used by GET /api/export so
+// the client can seed its IndexedDB on first launch (preserving existing data).
+export function exportData() {
+  return {
+    songs: load().songs,
+    saved: getSaved(),
+    learnt: getLearnt(),
+    model: getSettings().model,
+  };
+}
+
 export function listSongs() {
   return load().songs.map((s) => ({
     id: s.id,

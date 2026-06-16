@@ -22,16 +22,16 @@ function ai() {
 
 // Falls back to the default Gemini model when a non-Gemini model is selected
 // (e.g. lyrics search always runs on Gemini for its web grounding).
-function currentGeminiModel() {
-  const { model } = getSettings();
-  const isGemini = MODELS.some((m) => m.id === model && m.provider === 'gemini');
-  return isGemini ? model : DEFAULT_MODEL;
+function geminiModelFor(model) {
+  const chosen = model ?? getSettings().model;
+  const isGemini = MODELS.some((m) => m.id === chosen && m.provider === 'gemini');
+  return isGemini ? chosen : DEFAULT_MODEL;
 }
 
 // Retries on 503 (model overloaded) and 429 (rate limited), which are
 // transient on the free tier.
-async function generate(params) {
-  const model = currentGeminiModel();
+async function generate(params, modelOverride) {
+  const model = geminiModelFor(modelOverride);
   for (let attempt = 1; ; attempt++) {
     try {
       return await ai().models.generateContent({ model, ...params });
@@ -56,7 +56,7 @@ async function generate(params) {
 
 // Search grounding can't be combined with structured output, so lyrics
 // lookup is a separate plain-text call.
-export async function findLyrics(title, artist) {
+export async function findLyrics(title, artist, model) {
   const res = await generate({
     contents:
       `Find the original Japanese lyrics of the song "${title}"` +
@@ -67,7 +67,7 @@ export async function findLyrics(title, artist) {
     config: {
       tools: [{ googleSearch: {} }],
     },
-  });
+  }, model);
   const text = (res.text ?? '').trim();
   if (!text || text.includes('NOT_FOUND')) {
     throw userError(
@@ -155,7 +155,7 @@ const analysisSchema = {
   required: ['title', 'artist', 'summary', 'lines', 'vocabulary', 'grammar'],
 };
 
-export async function analyzeLyrics(lyrics, meta = {}) {
+export async function analyzeLyrics(lyrics, meta = {}, model) {
   const res = await generate({
     contents: analysisPrompt(lyrics, meta),
     config: {
@@ -165,7 +165,7 @@ export async function analyzeLyrics(lyrics, meta = {}) {
       // output cap, which truncates the JSON mid-string.
       maxOutputTokens: 65536,
     },
-  });
+  }, model);
   if (res.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
     throw userError(
       'The AI response hit the output limit — the song may be too long. Try splitting the lyrics or switching model.'

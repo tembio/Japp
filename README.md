@@ -21,11 +21,34 @@ Open http://localhost:5173.
 
 ## How it works
 
-- **Frontend**: React + Vite (`src/`), warm light theme.
-- **Backend**: Express (`server/`) — keeps the API key off the browser,
-  calls Gemini (`gemini-2.5-flash`), and persists analyzed songs to
-  `data/songs.json`.
+- **Frontend**: React + Vite (`src/`), installable PWA.
+- **On-device data**: your library, saved/learnt words and model choice live in
+  the browser (IndexedDB, `src/store.js`). Everything except analyzing a new
+  song works **offline**.
+- **Thin backend**: Express (`server/`) is now only an AI proxy — it keeps the
+  API keys off the browser and calls Gemini/DeepSeek. It no longer stores data.
 - **Lyrics search**: uses Gemini with Google Search grounding. Best effort —
   if it can't find the lyrics, paste them manually.
 - **Repeat tracking**: each new song's vocabulary and grammar patterns are
-  compared against all previously saved songs; matches are badged in the UI.
+  compared against everything already in your library; matches are badged.
+- **First launch** pulls any existing server library (`GET /api/export`) into
+  IndexedDB once, so nothing is lost.
+
+## Offline / installing as a mobile app
+
+The app is a PWA: open it in a browser and "Add to Home Screen". After the
+first online load it runs offline; only "analyze a new song" needs internet.
+
+### Deploying
+
+The static front-end and the AI server can be hosted separately:
+
+- **Front-end** (Netlify/Vercel/GitHub Pages): `npm run build`, deploy `dist/`.
+  If the server is on another origin, set `VITE_API_BASE` to its URL at build
+  time, e.g. `VITE_API_BASE=https://api.japp.example.com npm run build`.
+- **AI server** (Render/Fly/Railway): run `npm start` with `GEMINI_API_KEY`
+  (and optionally `DEEPSEEK_API_KEY`) set, plus `CORS_ORIGIN` = your front-end
+  URL.
+
+Or host both from one origin: `npm run build` then `npm start` serves `dist/`
+and `/api` together (leave `VITE_API_BASE` unset).

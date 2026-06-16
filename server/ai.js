@@ -7,11 +7,13 @@ import * as deepseek from './deepseek.js';
 // runs on Gemini regardless of the selected analysis model.
 export const findLyrics = gemini.findLyrics;
 
-export function analyzeLyrics(lyrics, meta) {
-  const { model } = getSettings();
-  const provider = MODELS.find((m) => m.id === model)?.provider ?? 'gemini';
-  console.log(`Analyzing with ${model} (${provider})`);
+// The model is chosen on the client now and passed in per request; it falls
+// back to the server's stored setting if absent.
+export function analyzeLyrics(lyrics, meta, model) {
+  const m = model ?? getSettings().model;
+  const provider = MODELS.find((mm) => mm.id === m)?.provider ?? 'gemini';
+  console.log(`Analyzing with ${m} (${provider})`);
   return provider === 'deepseek'
-    ? deepseek.analyzeLyrics(model, lyrics, meta)
-    : gemini.analyzeLyrics(lyrics, meta);
+    ? deepseek.analyzeLyrics(m, lyrics, meta)
+    : gemini.analyzeLyrics(lyrics, meta, m);
 }

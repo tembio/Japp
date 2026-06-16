@@ -2,28 +2,9 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import crypto from 'node:crypto';
 import { findLyrics, analyzeLyrics } from './ai.js';
 import { logError } from './logger.js';
-import {
-  listSongs,
-  getSong,
-  deleteSong,
-  addSong,
-  findExisting,
-  getSettings,
-  saveSettings,
-  getLearnt,
-  addLearnt,
-  removeLearnt,
-  getSaved,
-  addSaved,
-  removeSaved,
-  myWords,
-  apiKeyMeta,
-  allVocab,
-} from './store.js';
-import { MODELS, PROVIDER_LABELS } from './models.js';
+import { getSettings, saveSettings, apiKeyMeta, exportData } from './store.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 try {
@@ -35,23 +16,20 @@ try {
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
-app.get('/api/settings', (req, res) => {
-  const { keys, ...rest } = getSettings(); // never send raw keys to the browser
-  res.json({
-    ...rest,
-    models: MODELS,
-    providerLabels: PROVIDER_LABELS,
-    keys: { gemini: apiKeyMeta('gemini'), deepseek: apiKeyMeta('deepseek') },
-  });
+// The PWA is hosted on a different origin than this AI proxy, so allow CORS.
+// Set CORS_ORIGIN to the front-end URL in production; defaults to '*'.
+const CORS_ORIGIN = process.env.CORS_ORIGIN ?? '*';
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', CORS_ORIGIN);
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
 });
 
-app.put('/api/settings', (req, res) => {
-  const { model } = req.body ?? {};
-  if (!MODELS.some((m) => m.id === model)) {
-    return res.status(400).json({ error: `Unknown model: ${model}` });
-  }
-  const saved = saveSettings({ ...getSettings(), model });
-  res.json({ model: saved.model });
+// Live API-key status for the Config screen (never sends the raw keys).
+app.get('/api/keymeta', (req, res) => {
+  res.json({ gemini: apiKeyMeta('gemini'), deepseek: apiKeyMeta('deepseek') });
 });
 
 app.put('/api/keys', (req, res) => {
@@ -67,81 +45,26 @@ app.put('/api/keys', (req, res) => {
   res.json(apiKeyMeta(provider));
 });
 
-app.get('/api/learnt', (req, res) => {
-  res.json(getLearnt());
+// One-time dump of the legacy file-backed library so a fresh client can seed
+// its on-device IndexedDB without losing existing data.
+app.get('/api/export', (req, res) => {
+  res.json(exportData());
 });
 
-app.post('/api/learnt', (req, res) => {
-  const { word } = req.body ?? {};
-  if (!word?.trim()) return res.status(400).json({ error: 'Provide a word.' });
-  res.json(addLearnt(word));
-});
-
-app.delete('/api/learnt/:word', (req, res) => {
-  res.json(removeLearnt(req.params.word));
-});
-
-app.get('/api/saved', (req, res) => {
-  res.json(getSaved());
-});
-
-app.get('/api/mywords', (req, res) => {
-  res.json(myWords());
-});
-
-app.post('/api/saved', (req, res) => {
-  const { word } = req.body ?? {};
-  if (!word?.trim()) return res.status(400).json({ error: 'Provide a word.' });
-  res.json(addSaved(word));
-});
-
-app.delete('/api/saved/:word', (req, res) => {
-  res.json(removeSaved(req.params.word));
-});
-
-app.get('/api/vocab', (req, res) => {
-  res.json(allVocab());
-});
-
-app.get('/api/songs', (req, res) => {
-  res.json(listSongs());
-});
-
-app.get('/api/songs/:id', (req, res) => {
-  const song = getSong(req.params.id);
-  if (!song) return res.status(404).json({ error: 'Song not found' });
-  res.json(song);
-});
-
-app.delete('/api/songs/:id', (req, res) => {
-  if (!deleteSong(req.params.id)) return res.status(404).json({ error: 'Song not found' });
-  res.json({ ok: true });
-});
-
+// Stateless: the client owns the library now, so this only runs the AI and
+// returns the analysis. The model is chosen on the client and passed in.
 app.post('/api/analyze', async (req, res) => {
-  const { lyrics, title, artist } = req.body ?? {};
+  const { lyrics, title, artist, model } = req.body ?? {};
   try {
     if (!title?.trim()) {
       return res.status(400).json({ error: 'Please provide the song title.' });
     }
     let text = (lyrics ?? '').trim();
-
-    const lyricsKey = text ? fingerprint(text) : undefined;
-    const existing = findExisting({ title, artist, lyricsKey });
-    if (existing) {
-      return res.json({ ...existing, cached: true });
-    }
-
     if (!text) {
-      text = await findLyrics(title.trim(), artist?.trim());
+      text = await findLyrics(title.trim(), artist?.trim(), model);
     }
-    const analysis = await analyzeLyrics(text, { title: title?.trim(), artist: artist?.trim() });
-    const song = addSong(analysis, {
-      query: title?.trim() ? { title: title.trim(), artist: artist?.trim() || undefined } : undefined,
-      lyricsKey: lyricsKey ?? fingerprint(text),
-      model: getSettings().model,
-    });
-    res.json(song);
+    const analysis = await analyzeLyrics(text, { title: title?.trim(), artist: artist?.trim() }, model);
+    res.json(analysis);
   } catch (err) {
     if (err.expose) {
       res.status(err.status ?? 500).json({ error: err.message });
@@ -153,11 +76,6 @@ app.post('/api/analyze', async (req, res) => {
     }
   }
 });
-
-function fingerprint(text) {
-  const normalized = text.replace(/\s+/g, '').toLowerCase();
-  return crypto.createHash('sha256').update(normalized).digest('hex');
-}
 
 if (process.env.NODE_ENV === 'production') {
   const dist = path.join(ROOT, 'dist');
