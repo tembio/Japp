@@ -1095,7 +1095,9 @@ textarea {
 .translation-sub {
   font-size: 12.5px !important;
   line-height: 1.5 !important;
-  color: var(--text-soft);
+  /* Slightly warmer/terracotta-leaning than the gray romaji line, so the
+     English translation reads as a distinct layer. */
+  color: #a16e5a;
   font-family: var(--font-ui);
 }
 
