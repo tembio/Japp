@@ -1115,6 +1115,11 @@ textarea {
   position: relative;
   border-bottom: 1px dotted var(--text-faint);
   transition: background 0.1s ease;
+  /* Long-press jumps to the vocab row, so suppress the native text-selection
+     callout/selection that a hold would otherwise trigger on touch. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 @media (hover: hover) {
@@ -1314,6 +1319,11 @@ textarea {
   background: var(--accent-tint);
   border-bottom: 1px solid var(--border);
   user-select: none;
+}
+
+/* Mobile: the group header is a tap target that collapses its table. */
+.vocab-group h4[role='button'] {
+  cursor: pointer;
 }
 
 /* Toggles + filter living in the first group's header, beside the count. */

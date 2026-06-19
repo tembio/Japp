@@ -50,7 +50,7 @@ export function vocabGroup(partOfSpeech = '') {
 // Splits the displayed line into plain text and interactive word spans by
 // walking the AI's word segmentation in order. Tokens that can't be located
 // in the text (model mismatch) degrade to plain text.
-function LineText({ line, script, lineIdx, openId, setOpenId }) {
+function LineText({ line, script, lineIdx, openId, setOpenId, onHold }) {
   const text = line[script] ?? '';
   const field = script === 'kana' ? 'reading' : script === 'romaji' ? 'romaji' : 'word';
   const tokens = (line.words ?? []).filter((t) => t[field]?.trim());
@@ -95,15 +95,31 @@ function LineText({ line, script, lineIdx, openId, setOpenId }) {
     if (typeof part === 'string') return part;
     const { token, surface, id } = part;
     return (
-      <Token key={k} token={token} surface={surface} id={id} openId={openId} setOpenId={setOpenId} />
+      <Token key={k} token={token} surface={surface} id={id} openId={openId} setOpenId={setOpenId} onHold={onHold} />
     );
   });
 }
 
-function Token({ token, surface, id, openId, setOpenId }) {
+function Token({ token, surface, id, openId, setOpenId, onHold }) {
   const ref = useRef(null);
   const [shift, setShift] = useState(0);
   const [below, setBelow] = useState(false);
+  const holdTimer = useRef(null);
+  const held = useRef(false);
+
+  // Long-press (~500ms) jumps to the word's vocab row; a normal tap still opens
+  // the tooltip. `held` suppresses the tap that fires after a long-press.
+  function startHold() {
+    held.current = false;
+    clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => {
+      held.current = true;
+      onHold?.(token.word, id);
+    }, 500);
+  }
+  function endHold() {
+    clearTimeout(holdTimer.current);
+  }
 
   // The tip is centered on the word; once visible, measure it and nudge it
   // horizontally so it never overflows the viewport, and flip it below the
@@ -130,7 +146,17 @@ function Token({ token, surface, id, openId, setOpenId }) {
       ref={ref}
       className={`token ${openId === id ? 'open' : ''}`}
       onMouseEnter={clampTip}
+      onPointerDown={startHold}
+      onPointerUp={endHold}
+      onPointerLeave={endHold}
+      onPointerCancel={endHold}
+      onContextMenu={(e) => e.preventDefault()}
       onClick={(e) => {
+        if (held.current) {
+          held.current = false;
+          e.stopPropagation();
+          return;
+        }
         if (!isTouch()) return;
         e.stopPropagation();
         setOpenId(openId === id ? null : id);
@@ -195,6 +221,10 @@ export default function SongView({
   const filterRef = useRef(null);
   const [zoom, setZoom] = useState(null); // vocab entry shown large in a modal
   const groupsRef = useRef(null);
+  // Vocab group names collapsed on mobile (tap the header to toggle).
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
+  // Lyric line id to return to after a long-press jumped to the vocab tab.
+  const [returnToLyrics, setReturnToLyrics] = useState(null);
 
   // Portal target in the global top app bar (mobile only) for the lyrics
   // toggles. Resolved after mount so the DOM node exists.
@@ -356,6 +386,72 @@ export default function SongView({
   function toggleTranslation(on) {
     setShowTranslation(on);
     localStorage.setItem('showTranslation', on);
+  }
+
+  function toggleGroup(group) {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      next.has(group) ? next.delete(group) : next.add(group);
+      return next;
+    });
+  }
+
+  // Maps a lyric word (surface form) to its vocabulary entry. Tries an exact
+  // match first, then a shared leading stem (so conjugated forms like 言って
+  // still find 言う). Returns null for words not in the vocab table (particles,
+  // trivial words the AI skips).
+  function findVocabForToken(tokenWord) {
+    const t = normWord(tokenWord);
+    if (!t) return null;
+    const exact = song.vocabulary.find((v) => normWord(v.word) === t);
+    if (exact) return exact;
+    for (let len = t.length; len >= 1; len--) {
+      const frag = t.slice(0, len);
+      // Don't match on a single kana fragment — too loose; a lone kanji is fine.
+      if (len === 1 && !/\p{Script=Han}/u.test(frag)) continue;
+      const hit = song.vocabulary.find((v) => normWord(v.word).startsWith(frag));
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  // Long-press on a lyric word jumps to its row in the vocabulary tab, and
+  // remembers the originating line so a "back to lyrics" button can return there.
+  function jumpToVocab(tokenWord, tokenId) {
+    const entry = findVocabForToken(tokenWord);
+    if (!entry) return;
+    const key = normWord(entry.word);
+    const lineIdx = String(tokenId ?? '').split('-')[0];
+    setReturnToLyrics(lineIdx !== '' ? `line-${lineIdx}` : null);
+    setTab('vocab');
+    setVocabFilter('All');
+    if (learnt.has(key)) setShowLearnt(true);
+    // Make sure the target group isn't collapsed (mobile) so the row renders.
+    const grp = vocabGroup(entry.partOfSpeech);
+    setCollapsedGroups((prev) => {
+      if (!prev.has(grp)) return prev;
+      const next = new Set(prev);
+      next.delete(grp);
+      return next;
+    });
+    flashTo(`vocab-${key}`);
+  }
+
+  // Returns from the vocab tab to the line the long-press came from.
+  function backToLyrics() {
+    const target = returnToLyrics;
+    setReturnToLyrics(null);
+    setTab('lyrics');
+    if (target) flashTo(target);
+  }
+
+  // Scrolls an element into view and flashes it.
+  function flashTo(elementId) {
+    setTimeout(() => {
+      document.getElementById(elementId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setFlashKey(elementId);
+      setTimeout(() => setFlashKey(null), 2500);
+    }, 140);
   }
   const learntCount = song.vocabulary.filter((v) => learnt.has(normWord(v.word))).length;
   const visibleVocab = showLearnt
@@ -573,13 +669,25 @@ export default function SongView({
 
       <div className="song-nav">
         <div className="song-tabs">
-          <button className={tab === 'lyrics' ? 'active' : ''} onClick={() => setTab('lyrics')}>
+          <button
+            className={tab === 'lyrics' ? 'active' : ''}
+            onClick={() => {
+              setTab('lyrics');
+              setReturnToLyrics(null);
+            }}
+          >
             Lyrics
           </button>
           <button className={tab === 'vocab' ? 'active' : ''} onClick={() => setTab('vocab')}>
             Vocab <span className="tab-count">{song.vocabulary.length}</span>
           </button>
-          <button className={tab === 'grammar' ? 'active' : ''} onClick={() => setTab('grammar')}>
+          <button
+            className={tab === 'grammar' ? 'active' : ''}
+            onClick={() => {
+              setTab('grammar');
+              setReturnToLyrics(null);
+            }}
+          >
             Grammar <span className="tab-count">{song.grammar.length}</span>
           </button>
         </div>
@@ -608,6 +716,7 @@ export default function SongView({
                       lineIdx={i}
                       openId={openTokenId}
                       setOpenId={setOpenTokenId}
+                      onHold={jumpToVocab}
                     />
                   </p>
                   {showRomaji && line.romaji?.trim() && (
@@ -635,16 +744,35 @@ export default function SongView({
               {(vocabFilter === 'All'
                 ? presentGroups
                 : presentGroups.filter((g) => g.group === vocabFilter)
-              ).map(({ group, entries }) => (
-                <div key={group} className="vocab-group">
-                  {vocabFilter === 'All' && (
-                    <h4>
-                      {group} <span className="count">{entries.length}</span>
-                    </h4>
-                  )}
-                  {renderVocabTable(entries)}
-                </div>
-              ))}
+              ).map(({ group, entries }) => {
+                const collapsed = isMobile && collapsedGroups.has(group);
+                return (
+                  <div key={group} className="vocab-group">
+                    {vocabFilter === 'All' && (
+                      <h4
+                        className={collapsed ? 'collapsed' : ''}
+                        role={isMobile ? 'button' : undefined}
+                        aria-expanded={isMobile ? !collapsed : undefined}
+                        onClick={isMobile ? () => toggleGroup(group) : undefined}
+                      >
+                        {isMobile ? (
+                          <>
+                            <span>
+                              {group} <span className="count">{entries.length}</span>
+                            </span>
+                            <span className="group-chev" aria-hidden="true">▾</span>
+                          </>
+                        ) : (
+                          <>
+                            {group} <span className="count">{entries.length}</span>
+                          </>
+                        )}
+                      </h4>
+                    )}
+                    {!collapsed && renderVocabTable(entries)}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
@@ -678,6 +806,12 @@ export default function SongView({
             })}
           </div>
         </section>
+      )}
+
+      {returnToLyrics && tab === 'vocab' && (
+        <button className="back-btn" onClick={backToLyrics}>
+          ← Back to lyrics
+        </button>
       )}
 
       {zoom && (
