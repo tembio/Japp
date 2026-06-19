@@ -9,18 +9,81 @@ import { MODELS, PROVIDER_LABELS } from './models.js';
 // and the server are different origins, so set VITE_API_BASE at build time.
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
+const APP_PW_KEY = 'japp.appPassword';
+function appPassword() {
+  try {
+    return localStorage.getItem(APP_PW_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 // Calls the thin server. These are the only operations that require internet.
-async function serverRequest(path, options) {
+// Carries the app password (if set) so the server's gate lets them through.
+async function serverRequest(path, options = {}) {
+  const headers = { ...(options.headers ?? {}) };
+  const pw = appPassword();
+  if (pw) headers['X-App-Password'] = pw;
   let res;
   try {
-    res = await fetch(API_BASE + path, options);
+    res = await fetch(API_BASE + path, { ...options, headers });
   } catch {
     throw new Error('You appear to be offline. Connect to the internet to analyze songs or update keys.');
   }
   const body = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    const err = new Error(body.error ?? 'Incorrect app password.');
+    err.code = 401;
+    throw err;
+  }
   if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
   return body;
 }
+
+// App-password gate (Option B). Enforcement is server-side; this just lets the
+// UI discover whether a gate exists and store/verify the password per device.
+export const auth = {
+  hasStored: () => Boolean(appPassword()),
+  clear: () => {
+    try {
+      localStorage.removeItem(APP_PW_KEY);
+    } catch {
+      // ignore
+    }
+  },
+  // Does the server require a password? { required } online, { offline:true } if
+  // unreachable (we then let the app load — its data is local and the API stays
+  // server-enforced regardless).
+  status: async () => {
+    try {
+      const res = await fetch(API_BASE + '/api/auth');
+      if (res.status === 401) return { required: true };
+      const body = await res.json().catch(() => ({}));
+      return { required: Boolean(body.required) };
+    } catch {
+      return { offline: true };
+    }
+  },
+  // Verify a candidate password against the server; store it on success.
+  signIn: async (password) => {
+    let res;
+    try {
+      res = await fetch(API_BASE + '/api/auth', { headers: { 'X-App-Password': password } });
+    } catch {
+      throw new Error('Could not reach the server. Check your connection and try again.');
+    }
+    if (res.ok) {
+      try {
+        localStorage.setItem(APP_PW_KEY, password);
+      } catch {
+        // ignore storage failures
+      }
+      return true;
+    }
+    if (res.status === 401) throw new Error('Incorrect password.');
+    throw new Error(`Could not verify password (${res.status}).`);
+  },
+};
 
 const KEYMETA_CACHE = 'japp.keymeta';
 const EMPTY_KEYS = { gemini: { set: false, source: null, hint: null }, deepseek: { set: false, source: null, hint: null } };

@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { findLyrics, analyzeLyrics } from './ai.js';
 import { logError } from './logger.js';
@@ -27,12 +28,39 @@ app.use((req, res, next) => {
   next();
 });
 
+// Optional single-password gate. When APP_PASSWORD is set (e.g. on the hosted
+// server), the costly/sensitive endpoints require the client to send a matching
+// X-App-Password header. When it's unset (local dev), the gate is a no-op.
+const APP_PASSWORD = process.env.APP_PASSWORD ?? '';
+
+function passwordOk(req) {
+  if (!APP_PASSWORD) return true;
+  const given = req.get('X-App-Password') ?? '';
+  const a = Buffer.from(given);
+  const b = Buffer.from(APP_PASSWORD);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function requirePassword(req, res, next) {
+  if (passwordOk(req)) return next();
+  res.status(401).json({ error: 'Incorrect or missing app password.' });
+}
+
+// Lets the client discover whether a password is required and verify a candidate
+// one. No password set -> { required: false }. Set + correct -> { ok: true }.
+// Set + missing/wrong -> 401 (also how the client probes that a gate exists).
+app.get('/api/auth', (req, res) => {
+  if (!APP_PASSWORD) return res.json({ required: false });
+  if (passwordOk(req)) return res.json({ required: true, ok: true });
+  res.status(401).json({ required: true, error: 'Incorrect password.' });
+});
+
 // Live API-key status for the Config screen (never sends the raw keys).
-app.get('/api/keymeta', (req, res) => {
+app.get('/api/keymeta', requirePassword, (req, res) => {
   res.json({ gemini: apiKeyMeta('gemini'), deepseek: apiKeyMeta('deepseek') });
 });
 
-app.put('/api/keys', (req, res) => {
+app.put('/api/keys', requirePassword, (req, res) => {
   const { provider, key } = req.body ?? {};
   if (!['gemini', 'deepseek'].includes(provider)) {
     return res.status(400).json({ error: `Unknown provider: ${provider}` });
@@ -53,7 +81,7 @@ app.get('/api/export', (req, res) => {
 
 // Stateless: the client owns the library now, so this only runs the AI and
 // returns the analysis. The model is chosen on the client and passed in.
-app.post('/api/analyze', async (req, res) => {
+app.post('/api/analyze', requirePassword, async (req, res) => {
   const { lyrics, title, artist, model } = req.body ?? {};
   try {
     if (!title?.trim()) {

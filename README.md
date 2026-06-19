@@ -50,5 +50,13 @@ The static front-end and the AI server can be hosted separately:
   (and optionally `DEEPSEEK_API_KEY`) set, plus `CORS_ORIGIN` = your front-end
   URL.
 
+### Locking it down (private deployment)
+
+Set **`APP_PASSWORD`** on the server to make the app private. The app then shows
+a password screen, and the AI/keys endpoints reject any request without the
+matching password — so a stranger who finds the URL can't burn your API quota.
+The password is entered once per device and remembered (offline included).
+Leave `APP_PASSWORD` unset for an open local instance.
+
 Or host both from one origin: `npm run build` then `npm start` serves `dist/`
 and `/api` together (leave `VITE_API_BASE` unset).

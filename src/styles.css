@@ -2859,3 +2859,87 @@ tr.learnt td.jp {
     padding: 11px 8px;
   }
 }
+
+/* App-password lock screen (AuthGate) */
+.auth-gate {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  padding: 32px 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.auth-card .logo-mark {
+  width: 56px;
+  height: 56px;
+  font-size: 30px;
+}
+
+.auth-card h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.auth-card .muted {
+  margin: 0;
+  font-size: 14px;
+}
+
+.auth-card input {
+  width: 100%;
+  padding: 11px 13px;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.auth-card input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.auth-card button {
+  width: 100%;
+  padding: 11px 13px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.auth-card button:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.auth-card button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.auth-card .error {
+  margin: 0;
+  width: 100%;
+}
