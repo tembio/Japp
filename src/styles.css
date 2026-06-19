@@ -1373,6 +1373,27 @@ table {
   table-layout: auto;
 }
 
+/* Mobile: fixed column widths so a long meaning can't squeeze the word column
+   or push the ☆/✓ action icons out of the row. The word and action columns are
+   fixed; the meaning column takes the rest and wraps (grows in height). */
+@media (max-width: 720px) {
+  .vocab-group table {
+    table-layout: fixed;
+  }
+  .vocab-group td.word-cell {
+    width: 38%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .vocab-group td:nth-child(2) {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .vocab-group td.row-actions-m {
+    width: 100px;
+  }
+}
+
 .word-cell {
   white-space: nowrap;
 }
