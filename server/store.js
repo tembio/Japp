@@ -152,7 +152,10 @@ export function saveSettings(settings) {
   return settings;
 }
 
-const ENV_KEY_NAMES = { gemini: 'GEMINI_API_KEY', deepseek: 'DEEPSEEK_API_KEY' };
+const ENV_KEY_NAMES = {
+  deepseek: 'DEEPSEEK_API_KEY',
+  perplexity: 'PERPLEXITY_API_KEY',
+};
 
 // Keys saved from the UI (data/settings.json) take precedence over .env.
 export function getApiKey(provider) {

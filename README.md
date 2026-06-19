@@ -8,8 +8,9 @@ before.
 
 ## Setup
 
-1. Get a free Gemini API key at https://aistudio.google.com/apikey
-2. Copy `.env.example` to `.env` and paste your key in.
+1. Get a DeepSeek API key (5M free signup tokens) at https://platform.deepseek.com,
+   and a Perplexity API key at https://www.perplexity.ai/account/api (for lyrics search).
+2. Copy `.env.example` to `.env` and paste your keys in.
 3. Install and run:
 
 ```sh
@@ -26,9 +27,11 @@ Open http://localhost:5173.
   the browser (IndexedDB, `src/store.js`). Everything except analyzing a new
   song works **offline**.
 - **Thin backend**: Express (`server/`) is now only an AI proxy — it keeps the
-  API keys off the browser and calls Gemini/DeepSeek. It no longer stores data.
-- **Lyrics search**: uses Gemini with Google Search grounding. Best effort —
-  if it can't find the lyrics, paste them manually.
+  API keys off the browser and calls DeepSeek (analysis) and Perplexity (lyrics
+  search). It no longer stores data.
+- **Lyrics search**: uses Perplexity's web-grounded Sonar model
+  (`PERPLEXITY_API_KEY`). Best effort — if it can't find the lyrics, paste them
+  manually.
 - **Repeat tracking**: each new song's vocabulary and grammar patterns are
   compared against everything already in your library; matches are badged.
 - **First launch** pulls any existing server library (`GET /api/export`) into
@@ -46,9 +49,8 @@ The static front-end and the AI server can be hosted separately:
 - **Front-end** (Netlify/Vercel/GitHub Pages): `npm run build`, deploy `dist/`.
   If the server is on another origin, set `VITE_API_BASE` to its URL at build
   time, e.g. `VITE_API_BASE=https://api.japp.example.com npm run build`.
-- **AI server** (Render/Fly/Railway): run `npm start` with `GEMINI_API_KEY`
-  (and optionally `DEEPSEEK_API_KEY`) set, plus `CORS_ORIGIN` = your front-end
-  URL.
+- **AI server** (Render/Fly/Railway): run `npm start` with `DEEPSEEK_API_KEY`
+  and `PERPLEXITY_API_KEY` set, plus `CORS_ORIGIN` = your front-end URL.
 
 ### Locking it down (private deployment)
 

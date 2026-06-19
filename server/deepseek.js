@@ -8,7 +8,7 @@ export async function analyzeLyrics(model, lyrics, meta = {}) {
   const apiKey = getApiKey('deepseek');
   if (!apiKey) {
     throw userError(
-      'No DeepSeek API key configured. Add one in Config → API keys (from platform.deepseek.com), or switch to a Gemini model.'
+      'No DeepSeek API key configured. Add one in Config → API keys (from platform.deepseek.com).'
     );
   }
 
@@ -54,7 +54,7 @@ export async function analyzeLyrics(model, lyrics, meta = {}) {
       logError(`deepseek.analyzeLyrics (${model}) HTTP ${res.status}`, body.slice(0, 500));
       if (res.status === 401 || res.status === 402 || res.status === 403) {
         throw userError(
-          'DeepSeek rejected the request — check that your API key is valid and your account has balance, or switch to a Gemini model.'
+          'DeepSeek rejected the request — check that your API key is valid and your account has balance.'
         );
       }
       throw userError(

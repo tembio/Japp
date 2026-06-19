@@ -13,8 +13,7 @@ export function analysisPrompt(lyrics, { title, artist } = {}) {
   );
 }
 
-// JSON shape spec for providers without native structured output (DeepSeek).
-// Mirrors the Gemini responseSchema in gemini.js — keep the two in sync.
+// JSON shape spec for the analysis response (DeepSeek returns a JSON object).
 export const JSON_SPEC = `
 Respond with ONLY valid JSON (no markdown fences) in exactly this shape:
 {

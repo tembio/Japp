@@ -11,7 +11,7 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 try {
   process.loadEnvFile(path.join(ROOT, '.env'));
 } catch {
-  // no .env yet — the API key check in gemini.js reports it clearly
+  // no .env yet — the per-provider API key checks report it clearly
 }
 
 const app = express();
@@ -57,12 +57,12 @@ app.get('/api/auth', (req, res) => {
 
 // Live API-key status for the Config screen (never sends the raw keys).
 app.get('/api/keymeta', requirePassword, (req, res) => {
-  res.json({ gemini: apiKeyMeta('gemini'), deepseek: apiKeyMeta('deepseek') });
+  res.json({ deepseek: apiKeyMeta('deepseek'), perplexity: apiKeyMeta('perplexity') });
 });
 
 app.put('/api/keys', requirePassword, (req, res) => {
   const { provider, key } = req.body ?? {};
-  if (!['gemini', 'deepseek'].includes(provider)) {
+  if (!['deepseek', 'perplexity'].includes(provider)) {
     return res.status(400).json({ error: `Unknown provider: ${provider}` });
   }
   const settings = getSettings();
