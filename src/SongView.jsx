@@ -51,23 +51,44 @@ export function vocabGroup(partOfSpeech = '') {
 // walking the AI's word segmentation in order. Tokens that can't be located
 // in the text (model mismatch) degrade to plain text.
 function LineText({ line, script, lineIdx, openId, setOpenId }) {
-  const text = line[script];
-  const tokens = line.words ?? [];
+  const text = line[script] ?? '';
   const field = script === 'kana' ? 'reading' : script === 'romaji' ? 'romaji' : 'word';
+  const tokens = (line.words ?? []).filter((t) => t[field]?.trim());
+  const hay = script === 'romaji' ? text.toLowerCase() : text;
+  const find = (surface, from) =>
+    hay.indexOf(script === 'romaji' ? surface.toLowerCase() : surface, from);
 
+  // Align each word to the line, in order. A word that matches the line text
+  // verbatim takes its exact span; one that doesn't (e.g. DeepSeek returned a
+  // dictionary form instead of the conjugated surface) still claims the line
+  // text up to where the next word matches — so it stays clickable instead of
+  // being dropped to plain, non-interactive text.
   const parts = [];
   let pos = 0;
-  tokens.forEach((token, j) => {
-    const surface = token[field];
-    if (!surface?.trim()) return;
-    const haystack = script === 'romaji' ? text.toLowerCase() : text;
-    const needle = script === 'romaji' ? surface.toLowerCase() : surface;
-    const idx = haystack.indexOf(needle, pos);
-    if (idx === -1) return;
-    if (idx > pos) parts.push(text.slice(pos, idx));
-    parts.push({ token, surface: text.slice(idx, idx + surface.length), id: `${lineIdx}-${j}` });
-    pos = idx + surface.length;
-  });
+  let j = 0;
+  while (j < tokens.length) {
+    const token = tokens[j];
+    const idx = find(token[field], pos);
+    if (idx !== -1) {
+      if (idx > pos) parts.push(text.slice(pos, idx));
+      const end = idx + token[field].length;
+      parts.push({ token, surface: text.slice(idx, end), id: `${lineIdx}-${j}` });
+      pos = end;
+      j++;
+    } else {
+      // No verbatim match: give this word the gap up to the next word that does
+      // match (folding any other non-matching words in between into that span).
+      let n = j + 1;
+      let nextIdx = -1;
+      while (n < tokens.length && (nextIdx = find(tokens[n][field], pos)) === -1) n++;
+      const end = nextIdx === -1 ? text.length : nextIdx;
+      if (end > pos) {
+        parts.push({ token, surface: text.slice(pos, end), id: `${lineIdx}-${j}` });
+        pos = end;
+      }
+      j = n;
+    }
+  }
   if (pos < text.length) parts.push(text.slice(pos));
 
   return parts.map((part, k) => {

@@ -22,6 +22,9 @@ export async function analyzeLyrics(model, lyrics, meta = {}) {
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: analysisPrompt(lyrics, meta) + '\n' + JSON_SPEC }],
+        // Deterministic output: keeps per-word segmentation faithful to the
+        // line text (drift here is what makes words non-clickable in the UI).
+        temperature: 0,
         response_format: { type: 'json_object' },
         // V4 Pro turns thinking mode on by default, adding a long reasoning
         // pass before the answer — unnecessary for structured extraction.
