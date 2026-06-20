@@ -28,9 +28,10 @@ Open http://localhost:5173.
 - **Thin backend**: Express (`server/`) is now only an AI proxy — it keeps the
   API key off the browser, calls DeepSeek for analysis, and scrapes
   j-lyric.net / utaten.com for lyrics. It no longer stores data.
-- **Lyrics search**: scrapes j-lyric.net (then utaten.com as fallback) — plain
-  HTML, no API key. Best effort — if neither has the song, paste the lyrics
-  manually.
+- **Lyrics search**: scrapes plain-HTML lyric sites (no API key), routed by
+  input script — Japanese title/artist → j-lyric.net then utaten.com; romaji →
+  lyricstranslate.com (which hosts the original Japanese). Best effort — if the
+  song isn't found, paste the lyrics manually.
 - **Repeat tracking**: each new song's vocabulary and grammar patterns are
   compared against everything already in your library; matches are badged.
 - **First launch** pulls any existing server library (`GET /api/export`) into
@@ -49,7 +50,10 @@ The static front-end and the AI server can be hosted separately:
   If the server is on another origin, set `VITE_API_BASE` to its URL at build
   time, e.g. `VITE_API_BASE=https://api.japp.example.com npm run build`.
 - **AI server** (Render/Fly/Railway): run `npm start` with `DEEPSEEK_API_KEY`
-  set, plus `CORS_ORIGIN` = your front-end URL.
+  set, plus `CORS_ORIGIN` = your front-end URL. Optionally set
+  `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` (free DB at turso.tech) to cache
+  processed analyses across devices — Render's own disk is ephemeral, so a
+  plain SQLite file wouldn't persist.
 
 ### Locking it down (private deployment)
 

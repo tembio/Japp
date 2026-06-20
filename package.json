@@ -11,6 +11,7 @@
     "icons": "pwa-assets-generator --preset minimal-2023 public/icon.svg"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.4",
     "express": "^4.21.2",
     "idb": "^8.0.3",
     "node-html-parser": "^7.1.0",

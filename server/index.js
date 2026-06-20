@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { findLyrics, analyzeLyrics } from './ai.js';
 import { logError } from './logger.js';
 import { getSettings, saveSettings, apiKeyMeta, exportData } from './store.js';
+import { getCached, putCached, lyricsKey, queryKey } from './cache.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 try {
@@ -79,19 +80,32 @@ app.get('/api/export', (req, res) => {
   res.json(exportData());
 });
 
-// Stateless: the client owns the library now, so this only runs the AI and
-// returns the analysis. The model is chosen on the client and passed in.
+// The client owns the library; this runs the AI and returns the analysis. A
+// server-side cache (Turso, when configured) short-circuits the scrape + the
+// DeepSeek call for songs already processed on any device.
 app.post('/api/analyze', requirePassword, async (req, res) => {
   const { lyrics, title, artist, model } = req.body ?? {};
   try {
     if (!title?.trim()) {
       return res.status(400).json({ error: 'Please provide the song title.' });
     }
-    let text = (lyrics ?? '').trim();
-    if (!text) {
-      text = await findLyrics(title.trim(), artist?.trim(), model);
-    }
-    const analysis = await analyzeLyrics(text, { title: title?.trim(), artist: artist?.trim() }, model);
+    const text = (lyrics ?? '').trim();
+
+    // Cache lookup before any work: by lyrics fingerprint (paste) or title+artist (search).
+    const lookupKey = text ? lyricsKey(text) : queryKey(title, artist);
+    const hit = await getCached(lookupKey);
+    if (hit) return res.json(hit);
+
+    const lyricsText = text || (await findLyrics(title.trim(), artist?.trim()));
+    const analysis = await analyzeLyrics(lyricsText, { title: title?.trim(), artist: artist?.trim() }, model);
+
+    // Store under the actual lyrics fingerprint and, for searches, the query key
+    // too — so a later paste of the same song, or the same search, both hit.
+    const meta = { title: title?.trim(), artist: artist?.trim(), model };
+    const lk = lyricsKey(lyricsText);
+    await putCached(lk, meta, analysis);
+    if (lookupKey !== lk) await putCached(lookupKey, meta, analysis);
+
     res.json(analysis);
   } catch (err) {
     if (err.expose) {
