@@ -154,7 +154,6 @@ export function saveSettings(settings) {
 
 const ENV_KEY_NAMES = {
   deepseek: 'DEEPSEEK_API_KEY',
-  perplexity: 'PERPLEXITY_API_KEY',
 };
 
 // Keys saved from the UI (data/settings.json) take precedence over .env.

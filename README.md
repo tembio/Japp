@@ -8,9 +8,8 @@ before.
 
 ## Setup
 
-1. Get a DeepSeek API key (5M free signup tokens) at https://platform.deepseek.com,
-   and a Perplexity API key at https://www.perplexity.ai/account/api (for lyrics search).
-2. Copy `.env.example` to `.env` and paste your keys in.
+1. Get a DeepSeek API key (5M free signup tokens) at https://platform.deepseek.com.
+2. Copy `.env.example` to `.env` and paste your key in.
 3. Install and run:
 
 ```sh
@@ -27,10 +26,10 @@ Open http://localhost:5173.
   the browser (IndexedDB, `src/store.js`). Everything except analyzing a new
   song works **offline**.
 - **Thin backend**: Express (`server/`) is now only an AI proxy — it keeps the
-  API keys off the browser and calls DeepSeek (analysis) and Perplexity (lyrics
-  search). It no longer stores data.
-- **Lyrics search**: uses Perplexity's web-grounded Sonar model
-  (`PERPLEXITY_API_KEY`). Best effort — if it can't find the lyrics, paste them
+  API key off the browser, calls DeepSeek for analysis, and scrapes
+  j-lyric.net / utaten.com for lyrics. It no longer stores data.
+- **Lyrics search**: scrapes j-lyric.net (then utaten.com as fallback) — plain
+  HTML, no API key. Best effort — if neither has the song, paste the lyrics
   manually.
 - **Repeat tracking**: each new song's vocabulary and grammar patterns are
   compared against everything already in your library; matches are badged.
@@ -50,7 +49,7 @@ The static front-end and the AI server can be hosted separately:
   If the server is on another origin, set `VITE_API_BASE` to its URL at build
   time, e.g. `VITE_API_BASE=https://api.japp.example.com npm run build`.
 - **AI server** (Render/Fly/Railway): run `npm start` with `DEEPSEEK_API_KEY`
-  and `PERPLEXITY_API_KEY` set, plus `CORS_ORIGIN` = your front-end URL.
+  set, plus `CORS_ORIGIN` = your front-end URL.
 
 ### Locking it down (private deployment)
 

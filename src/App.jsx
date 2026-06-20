@@ -68,7 +68,7 @@ export default function App() {
     refreshWords();
   }, []);
 
-  const [keyInputs, setKeyInputs] = useState({ deepseek: '', perplexity: '' });
+  const [keyInputs, setKeyInputs] = useState({ deepseek: '' });
   const [keyNotice, setKeyNotice] = useState(null);
 
   async function saveKey(provider, value) {
@@ -515,8 +515,8 @@ export default function App() {
             <section className="config-section">
               <h3>AI model</h3>
               <p className="muted">
-                Used to analyze lyrics. Searching lyrics by title uses Perplexity (it can search
-                the web), independent of the analysis model.
+                Used to analyze lyrics. Searching lyrics by title scrapes j-lyric.net and
+                utaten.com — no key needed.
               </p>
               {settings &&
                 [...new Set(settings.models.map((m) => m.provider))].map((provider) => (
@@ -552,7 +552,6 @@ export default function App() {
               {settings &&
                 [
                   { id: 'deepseek', name: 'DeepSeek', url: 'platform.deepseek.com' },
-                  { id: 'perplexity', name: 'Perplexity', url: 'perplexity.ai/account/api' },
                 ].map((p) => {
                   const meta = settings.keys?.[p.id];
                   return (
@@ -657,7 +656,7 @@ export default function App() {
               )}
               {mode === 'search' && (
                 <p className="muted">
-                  Lyrics are found via Perplexity's web search. The analysis itself uses
+                  Lyrics are looked up on j-lyric.net and utaten.com. The analysis itself uses
                   your selected model. If the lyrics can't be found, paste them instead.
                 </p>
               )}

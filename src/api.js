@@ -86,7 +86,7 @@ export const auth = {
 };
 
 const KEYMETA_CACHE = 'japp.keymeta';
-const EMPTY_KEYS = { deepseek: { set: false, source: null, hint: null }, perplexity: { set: false, source: null, hint: null } };
+const EMPTY_KEYS = { deepseek: { set: false, source: null, hint: null } };
 
 async function keyMeta() {
   try {

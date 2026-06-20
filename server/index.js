@@ -57,12 +57,12 @@ app.get('/api/auth', (req, res) => {
 
 // Live API-key status for the Config screen (never sends the raw keys).
 app.get('/api/keymeta', requirePassword, (req, res) => {
-  res.json({ deepseek: apiKeyMeta('deepseek'), perplexity: apiKeyMeta('perplexity') });
+  res.json({ deepseek: apiKeyMeta('deepseek') });
 });
 
 app.put('/api/keys', requirePassword, (req, res) => {
   const { provider, key } = req.body ?? {};
-  if (!['deepseek', 'perplexity'].includes(provider)) {
+  if (!['deepseek'].includes(provider)) {
     return res.status(400).json({ error: `Unknown provider: ${provider}` });
   }
   const settings = getSettings();
