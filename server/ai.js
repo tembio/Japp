@@ -2,20 +2,27 @@ import { MODELS, DEFAULT_MODEL } from './models.js';
 import * as deepseek from './deepseek.js';
 import * as jlyric from './jlyric.js';
 import * as utaten from './utaten.js';
+import * as lyricstranslate from './lyricstranslate.js';
 import { userError } from './logger.js';
 
-// Lyrics search scrapes Japanese lyric sites (no API key, no bot protection):
-// j-lyric.net first, then utaten.com. If neither has it, the user pastes them.
+const HAS_JAPANESE = /\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Han}/u;
+
+// Lyrics search scrapes plain-HTML lyric sites (no API key, no bot protection),
+// routed by input script: Japanese title/artist → j-lyric.net then utaten.com
+// (both indexed by Japanese text); romaji/Latin input → lyricstranslate.com
+// (searchable by romanized name, hosts the original Japanese lyrics).
 export async function findLyrics(title, artist) {
-  const fromJ = await jlyric.findLyrics(title, artist);
-  if (fromJ) {
-    console.log('Lyrics found via j-lyric.net');
-    return fromJ;
-  }
-  const fromU = await utaten.findLyrics(title, artist);
-  if (fromU) {
-    console.log('Lyrics found via utaten.com');
-    return fromU;
+  const japanese = HAS_JAPANESE.test(`${title ?? ''} ${artist ?? ''}`);
+  const sources = japanese
+    ? [['j-lyric.net', jlyric], ['utaten.com', utaten]]
+    : [['lyricstranslate.com', lyricstranslate]];
+
+  for (const [name, source] of sources) {
+    const lyrics = await source.findLyrics(title, artist);
+    if (lyrics) {
+      console.log(`Lyrics found via ${name}`);
+      return lyrics;
+    }
   }
   throw userError(
     `Could not find lyrics for "${title}"${artist ? ` by ${artist}` : ''}. Try pasting the lyrics instead.`,

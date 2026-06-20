@@ -515,8 +515,8 @@ export default function App() {
             <section className="config-section">
               <h3>AI model</h3>
               <p className="muted">
-                Used to analyze lyrics. Searching lyrics by title scrapes j-lyric.net and
-                utaten.com — no key needed.
+                Used to analyze lyrics. Searching by title scrapes j-lyric.net / utaten.com for
+                Japanese titles, or lyricstranslate.com for romaji — no key needed.
               </p>
               {settings &&
                 [...new Set(settings.models.map((m) => m.provider))].map((provider) => (
@@ -656,8 +656,9 @@ export default function App() {
               )}
               {mode === 'search' && (
                 <p className="muted">
-                  Lyrics are looked up on j-lyric.net and utaten.com. The analysis itself uses
-                  your selected model. If the lyrics can't be found, paste them instead.
+                  Lyrics are looked up on j-lyric.net / utaten.com (Japanese titles) or
+                  lyricstranslate.com (romaji). The analysis itself uses your selected model. If
+                  the lyrics can't be found, paste them instead.
                 </p>
               )}
               <button className="analyze-btn" disabled={loading}>
