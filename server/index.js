@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { findLyrics, analyzeLyrics } from './ai.js';
 import { logError } from './logger.js';
 import { getSettings, saveSettings, apiKeyMeta, exportData } from './store.js';
-import { getCached, putCached, lyricsKey, queryKey } from './cache.js';
+import { getCached, putCached, lyricsKey } from './cache.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 try {
@@ -91,20 +91,16 @@ app.post('/api/analyze', requirePassword, async (req, res) => {
     }
     const text = (lyrics ?? '').trim();
 
-    // Cache lookup before any work: by lyrics fingerprint (paste) or title+artist (search).
-    const lookupKey = text ? lyricsKey(text) : queryKey(title, artist);
-    const hit = await getCached(lookupKey);
+    // Get the lyrics first (pasted, or scraped for a title search), then key the
+    // cache by their fingerprint — so the same song maps to one row however it
+    // was found. A hit skips the expensive DeepSeek call (the scrape is cheap).
+    const lyricsText = text || (await findLyrics(title.trim(), artist?.trim()));
+    const key = lyricsKey(lyricsText);
+    const hit = await getCached(key);
     if (hit) return res.json(hit);
 
-    const lyricsText = text || (await findLyrics(title.trim(), artist?.trim()));
     const analysis = await analyzeLyrics(lyricsText, { title: title?.trim(), artist: artist?.trim() }, model);
-
-    // Store under the actual lyrics fingerprint and, for searches, the query key
-    // too — so a later paste of the same song, or the same search, both hit.
-    const meta = { title: title?.trim(), artist: artist?.trim(), model };
-    const lk = lyricsKey(lyricsText);
-    await putCached(lk, meta, analysis);
-    if (lookupKey !== lk) await putCached(lookupKey, meta, analysis);
+    await putCached(key, { title: title?.trim(), artist: artist?.trim() }, analysis);
 
     res.json(analysis);
   } catch (err) {
