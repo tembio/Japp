@@ -24,11 +24,20 @@ async function serverRequest(path, options = {}) {
   const headers = { ...(options.headers ?? {}) };
   const pw = appPassword();
   if (pw) headers['X-App-Password'] = pw;
+
+  // Abort after 8 seconds so a sleeping server never blocks the app.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8_000);
   let res;
   try {
-    res = await fetch(API_BASE + path, { ...options, headers });
-  } catch {
+
+
+    res = await fetch(API_BASE + path, { ...options, headers, signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('The server is not responding. Please try again in a moment.');
     throw new Error('You appear to be offline. Connect to the internet to analyze songs or update keys.');
+  } finally {
+    clearTimeout(timer);
   }
   const body = await res.json().catch(() => ({}));
   if (res.status === 401) {
@@ -55,22 +64,31 @@ export const auth = {
   // unreachable (we then let the app load — its data is local and the API stays
   // server-enforced regardless).
   status: async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
     try {
-      const res = await fetch(API_BASE + '/api/auth');
+      const res = await fetch(API_BASE + '/api/auth', { signal: controller.signal });
       if (res.status === 401) return { required: true };
       const body = await res.json().catch(() => ({}));
       return { required: Boolean(body.required) };
     } catch {
       return { offline: true };
+    } finally {
+      clearTimeout(timer);
     }
   },
   // Verify a candidate password against the server; store it on success.
   signIn: async (password) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
     let res;
     try {
-      res = await fetch(API_BASE + '/api/auth', { headers: { 'X-App-Password': password } });
-    } catch {
+      res = await fetch(API_BASE + '/api/auth', { headers: { 'X-App-Password': password }, signal: controller.signal });
+    } catch (err) {
+      if (err.name === 'AbortError') throw new Error('The server is not responding. Please try again in a moment.');
       throw new Error('Could not reach the server. Check your connection and try again.');
+    } finally {
+      clearTimeout(timer);
     }
     if (res.ok) {
       try {
@@ -88,19 +106,23 @@ export const auth = {
 const KEYMETA_CACHE = 'japp.keymeta';
 const EMPTY_KEYS = { deepseek: { set: false, source: null, hint: null } };
 
-async function keyMeta() {
+// Returns the last-known key status instantly (cache-first, no network wait).
+// Refreshes in the background so the Config screen is up-to-date next time.
+function keyMeta() {
+  // Read cache synchronously (localStorage is sync). Fall back to EMPTY_KEYS.
+  let cached;
   try {
-    const meta = await serverRequest('/api/keymeta');
-    localStorage.setItem(KEYMETA_CACHE, JSON.stringify(meta));
-    return meta;
+    cached = JSON.parse(localStorage.getItem(KEYMETA_CACHE)) ?? EMPTY_KEYS;
   } catch {
-    // Offline: fall back to the last-known status so the Config screen still renders.
-    try {
-      return JSON.parse(localStorage.getItem(KEYMETA_CACHE)) ?? EMPTY_KEYS;
-    } catch {
-      return EMPTY_KEYS;
-    }
+    cached = EMPTY_KEYS;
   }
+
+  // Refresh in the background — never block the caller.
+  serverRequest('/api/keymeta')
+    .then((meta) => localStorage.setItem(KEYMETA_CACHE, JSON.stringify(meta)))
+    .catch(() => {});
+
+  return cached;
 }
 
 export const api = {
