@@ -1,5 +1,29 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+// ---- session persistence --------------------------------------------------
+// On iOS/Android, the OS kills background PWAs after a while. When the user
+// returns, the page reloads and all React state is lost. sessionStorage
+// survives this reload (it's tied to the tab, not the process) so we save
+// the navigation state there and restore it on mount.
+
+const SESSION_KEY = 'japp.ui.session';
+
+function loadSession() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore corrupt data */ }
+  return null;
+}
+
+function saveSession(s) {
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch {}
+}
+
+function clearSession() {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+}
+
 const LOADING_STEPS = [
   'Sending the song to the AI…',
   'Reading the lyrics…',
@@ -41,7 +65,8 @@ import WordTip from './WordTip.jsx';
 export default function App() {
   const [songs, setSongs] = useState([]);
   const [current, setCurrent] = useState(null);
-  const [view, setView] = useState('mywords'); // 'intake' | 'songs' | 'mywords' | 'config' | 'song'
+
+  const [view, setView] = useState('songs'); // 'intake' | 'songs' | 'mywords' | 'config' | 'song'
   const [myWords, setMyWords] = useState([]);
   const [showLearntWords, setShowLearntWords] = useState(false);
   const [expandedSongs, setExpandedSongs] = useState(() => new Set());
@@ -66,6 +91,24 @@ export default function App() {
     api.listSongs().then(setSongs).catch(() => {});
     api.getSettings().then(setSettings).catch(() => {});
     refreshWords();
+
+    // ---- restore session on page reload (background-kill wake) ------------
+    const session = loadSession();
+    if (session && session.view && session.songId) {
+      // Restore: re-fetch the song from IndexedDB and go to song view.
+      api.getSong(session.songId).then((song) => {
+        if (song) {
+          setCurrent(song);
+          setView('song');
+          if (session.backStack) setBackStack(session.backStack);
+        }
+      }).catch(() => {});
+    } else if (session && session.view) {
+      // Restore: go to a non-song screen (songs, mywords, config, study).
+      setView(session.view);
+      if (session.showLearntWords) setShowLearntWords(session.showLearntWords);
+      if (session.backStack) setBackStack(session.backStack);
+    }
   }, []);
 
   const [keyInputs, setKeyInputs] = useState({ deepseek: '' });
@@ -173,6 +216,13 @@ export default function App() {
   const [focus, setFocus] = useState(null);
   const [backStack, setBackStack] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // ---- persist navigation state whenever it changes ----------------------
+  useEffect(() => {
+    const snap = { view, songId: current?.id, backStack, showLearntWords };
+    if (view === 'song' && current?.id) saveSession(snap);
+    else if (view !== 'song') saveSession({ view, showLearntWords });
+  }, [view, current?.id, backStack, showLearntWords]);
 
   async function openSong(id, focusTarget = null) {
     setError(null);
