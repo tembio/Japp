@@ -1,2 +1,3 @@
 Animate row with  All/Noums/Verbs...
 Make the titles style better and animate them 
+Backup push is a full snapshot every time — optionally switch to diff / skip-if-unchanged later (hold until the proper backend)

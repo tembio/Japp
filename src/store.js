@@ -156,6 +156,49 @@ export async function deleteSong(id) {
   return true;
 }
 
+// The lyric fingerprints (lyricsKey) of every song in the library. This is the
+// per-user backup payload — the songs themselves live in the Turso cache.
+export async function songKeys() {
+  const songs = await allSongs();
+  return songs.map((s) => s.lyricsKey).filter(Boolean);
+}
+
+// Rebuilds songs from cached analyses fetched from the per-user backup. Each
+// item is { key: lyricsKey, analysis: <full analysis> }. Fresh ids/addedAt are
+// assigned; songs already present (by lyricsKey) are skipped, so a restore
+// never duplicates or clobbers on-device data.
+export async function restoreSongs(items) {
+  const db = await dbPromise;
+  const existingKeys = new Set((await allSongs()).map((s) => s.lyricsKey).filter(Boolean));
+  const fresh = [];
+  for (const { key, analysis } of items ?? []) {
+    if (!key || !analysis || existingKeys.has(key)) continue;
+    fresh.push({
+      id: crypto.randomUUID(),
+      addedAt: new Date().toISOString(),
+      lyricsKey: key,
+      ...analysis,
+      artist: cleanArtist(analysis.artist),
+    });
+  }
+  if (fresh.length) {
+    const tx = db.transaction('songs', 'readwrite');
+    for (const s of fresh) tx.store.put(s);
+    await tx.done;
+  }
+  return fresh.length;
+}
+
+// Replaces the saved/learnt lists outright (used when restoring a backup onto a
+// fresh device).
+export async function setSaved(words) {
+  return kvSet('saved', [...new Set((words ?? []).map(normalize))]);
+}
+
+export async function setLearnt(words) {
+  return kvSet('learnt', [...new Set((words ?? []).map(normalize))]);
+}
+
 // Returns a previously saved song matching the search query (title/artist,
 // also checked against what the user originally typed) or pasted lyrics.
 export async function findExisting({ title, artist, lyricsKey }) {

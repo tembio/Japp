@@ -18,6 +18,24 @@ function appPassword() {
   }
 }
 
+// The user's identifier for the per-user library backup. Stored on-device like
+// the app password; until real auth exists it's just an ID the user picks.
+const USER_ID_KEY = 'japp.userId';
+function getUserId() {
+  try {
+    return localStorage.getItem(USER_ID_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+function setUserId(id) {
+  try {
+    localStorage.setItem(USER_ID_KEY, id);
+  } catch {
+    // ignore
+  }
+}
+
 // Calls the thin server. These are the only operations that require internet.
 // Carries the app password (if set) so the server's gate lets them through.
 async function serverRequest(path, options = {}) {
@@ -52,10 +70,14 @@ async function serverRequest(path, options = {}) {
 // App-password gate (Option B). Enforcement is server-side; this just lets the
 // UI discover whether a gate exists and store/verify the password per device.
 export const auth = {
-  hasStored: () => Boolean(appPassword()),
+  hasPassword: () => Boolean(appPassword()),
+  getUserId: () => getUserId(),
+  setUserId: (id) => setUserId(id),
+  hasUserId: () => Boolean(getUserId()),
   clear: () => {
     try {
       localStorage.removeItem(APP_PW_KEY);
+      localStorage.removeItem(USER_ID_KEY);
     } catch {
       // ignore
     }
@@ -106,6 +128,49 @@ export const auth = {
 const KEYMETA_CACHE = 'japp.keymeta';
 const EMPTY_KEYS = { deepseek: { set: false, source: null, hint: null } };
 
+// ---- per-user library backup (Turso) --------------------------------------
+// The on-device IndexedDB is the working copy; the server keeps a reference-
+// level backup (song fingerprints + saved/learnt words) so a redeploy can't
+// lose a user's data. syncLibrary() runs on boot, schedulePush() after changes.
+
+// The in-flight boot restore. Every push waits for it so a fresh device never
+// overwrites its backup with empty state before the restore finishes.
+let syncPromise = Promise.resolve();
+let pushTimer = null;
+
+// Uploads the full local library snapshot for the given user.
+async function pushSnapshot(userId) {
+  const [songKeys, saved, learnt] = await Promise.all([
+    store.songKeys(),
+    store.getSaved(),
+    store.getLearnt(),
+  ]);
+  await serverRequest('/api/user/library', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, songKeys, saved, learnt }),
+  });
+}
+
+// Debounced push: batches bursts of changes (starring several words, adding a
+// song…) into one snapshot upload. Offline failures are skipped — the next
+// change (or next boot's sync) re-syncs.
+function schedulePush() {
+  const userId = getUserId();
+  if (!userId) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(async () => {
+    await syncPromise;
+    const uid = getUserId();
+    if (!uid) return;
+    try {
+      await pushSnapshot(uid);
+    } catch {
+      // offline — the backup catches up on the next change or boot
+    }
+  }, 400);
+}
+
 // Returns the last-known key status instantly (cache-first, no network wait).
 // Refreshes in the background so the Config screen is up-to-date next time.
 function keyMeta() {
@@ -155,6 +220,68 @@ export const api = {
   listSongs: () => store.listSongs(),
   getSong: (id) => store.getSong(id),
   deleteSong: (id) => store.deleteSong(id),
+
+  // --- per-user library backup (Turso) ---
+  // Reads the user's saved reference list from the server.
+  getLibrary: (userId) =>
+    serverRequest(`/api/user/library?userId=${encodeURIComponent(userId)}`),
+
+  // Fetches full cached analyses for the given song keys, so a fresh install
+  // can rebuild its library from the backup without re-running the AI.
+  getSongsByKeys: (keys) =>
+    serverRequest('/api/user/songs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys }),
+    }),
+
+  // Reconciles the on-device library with the user's server backup. On a
+  // fresh device (empty local store) it restores from the backup; otherwise
+  // it pushes the current local state up. Runs once at boot, after login.
+  syncLibrary: async () => {
+    const userId = getUserId();
+    const run = (async () => {
+      if (!userId) return;
+      let remote;
+      try {
+        remote = await serverRequest(`/api/user/library?userId=${encodeURIComponent(userId)}`);
+      } catch {
+        return; // offline — keep the on-device library as-is
+      }
+      const [localSongs, localSaved, localLearnt] = await Promise.all([
+        store.listSongs(),
+        store.getSaved(),
+        store.getLearnt(),
+      ]);
+      const localEmpty = localSongs.length === 0 && localSaved.length === 0 && localLearnt.length === 0;
+      const remoteEmpty =
+        !remote.songKeys?.length && !remote.saved?.length && !remote.learnt?.length;
+
+      if (localEmpty && !remoteEmpty) {
+        // Fresh device: rebuild the library from the backup.
+        try {
+          const { songs } = await serverRequest('/api/user/songs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keys: remote.songKeys ?? [] }),
+          });
+          if (songs?.length) await store.restoreSongs(songs);
+        } catch {
+          // Couldn't fetch analyses — still restore the word lists below.
+        }
+        await store.setSaved(remote.saved ?? []);
+        await store.setLearnt(remote.learnt ?? []);
+      } else if (!localEmpty || !remoteEmpty) {
+        // Push the (merged/current) local state up so the backup stays fresh.
+        await pushSnapshot(userId);
+      }
+    })();
+    syncPromise = run;
+    return run;
+  },
+
+  // Debounced push of the current library snapshot after any change.
+  schedulePush: schedulePush,
 
   // --- analyze: cache hit is offline; a miss needs the AI server ---
   analyze: async ({ lyrics, title, artist }) => {

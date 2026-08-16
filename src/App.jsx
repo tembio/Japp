@@ -57,7 +57,7 @@ function Loader({ searching }) {
     </div>
   );
 }
-import { api } from './api.js';
+import { api, auth } from './api.js';
 import SongView from './SongView.jsx';
 import Study from './Study.jsx';
 import WordTip from './WordTip.jsx';
@@ -65,7 +65,6 @@ import WordTip from './WordTip.jsx';
 export default function App() {
   const [songs, setSongs] = useState([]);
   const [current, setCurrent] = useState(null);
-
   const [view, setView] = useState('songs'); // 'intake' | 'songs' | 'mywords' | 'config' | 'song'
   const [myWords, setMyWords] = useState([]);
   const [showLearntWords, setShowLearntWords] = useState(false);
@@ -85,12 +84,24 @@ export default function App() {
   const [notice, setNotice] = useState(null);
   const [settings, setSettings] = useState(null);
 
-  const refreshWords = () => api.myWords().then(setMyWords).catch(() => {});
+  // Refreshes the Words list and backs up the library to the server (debounced)
+  // after any saved/learnt change.
+  const refreshWords = () => {
+    api.myWords().then(setMyWords).catch(() => {});
+    api.schedulePush();
+  };
 
   useEffect(() => {
     api.listSongs().then(setSongs).catch(() => {});
     api.getSettings().then(setSettings).catch(() => {});
     refreshWords();
+
+    // Reconcile the on-device library with the user's server backup, then
+    // refresh the lists in case songs/words were restored onto this device.
+    api.syncLibrary().then(() => {
+      api.listSongs().then(setSongs).catch(() => {});
+      refreshWords();
+    });
 
     // ---- restore session on page reload (background-kill wake) ------------
     const session = loadSession();
@@ -206,6 +217,7 @@ export default function App() {
         setSongs(await api.listSongs());
       }
       setLyrics('');
+      api.schedulePush();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -291,6 +303,7 @@ export default function App() {
     await api.deleteSong(id);
     if (current?.id === id) setCurrent(null);
     setSongs(await api.listSongs());
+    api.schedulePush();
   }
 
   return (
@@ -640,6 +653,23 @@ export default function App() {
                     </div>
                   );
                 })}
+            </section>
+            <section className="config-section">
+              <h3>Account</h3>
+              <p className="muted">
+                Logging out clears your saved user ID and password from this device — your songs
+                stay in the app.
+              </p>
+              <button
+                className="key-btn remove"
+                title="Clear the saved user ID and password on this device"
+                onClick={() => {
+                  auth.clear();
+                  location.reload();
+                }}
+              >
+                Log out
+              </button>
             </section>
           </div>
         ) : view === 'song' && current ? (

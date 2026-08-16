@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { findLyrics, analyzeLyrics } from './ai.js';
 import { logError } from './logger.js';
 import { getSettings, saveSettings, apiKeyMeta, exportData } from './store.js';
-import { getCached, putCached, lyricsKey } from './cache.js';
+import { getCached, putCached, lyricsKey, getUserLibrary, putUserLibrary, getSongsByKeys } from './cache.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 try {
@@ -78,6 +78,36 @@ app.put('/api/keys', requirePassword, (req, res) => {
 // its on-device IndexedDB without losing existing data.
 app.get('/api/export', (req, res) => {
   res.json(exportData());
+});
+
+// Per-user library backup (Turso). The client owns its library in IndexedDB;
+// these endpoints keep a reference-level copy server-side so a redeploy can't
+// lose a user's songs/words. Keyed by user ID alone until real auth exists.
+app.get('/api/user/library', requirePassword, async (req, res) => {
+  const userId = (req.query.userId ?? '').trim();
+  if (!userId) return res.status(400).json({ error: 'Missing userId.' });
+  const lib = await getUserLibrary(userId);
+  res.json(lib ?? { songKeys: [], saved: [], learnt: [] });
+});
+
+app.put('/api/user/library', requirePassword, async (req, res) => {
+  const { userId, songKeys, saved, learnt } = req.body ?? {};
+  if (!userId?.trim()) return res.status(400).json({ error: 'Missing userId.' });
+  await putUserLibrary(userId.trim(), {
+    songKeys: Array.isArray(songKeys) ? songKeys : [],
+    saved: Array.isArray(saved) ? saved : [],
+    learnt: Array.isArray(learnt) ? learnt : [],
+  });
+  res.json({ ok: true });
+});
+
+// Fetches the full cached analyses for a set of song keys, so a fresh install
+// can rebuild a user's library from Turso without re-running the AI.
+app.post('/api/user/songs', requirePassword, async (req, res) => {
+  const { keys } = req.body ?? {};
+  if (!Array.isArray(keys)) return res.status(400).json({ error: 'Missing keys.' });
+  const songs = await getSongsByKeys(keys);
+  res.json({ songs });
 });
 
 // The client owns the library; this runs the AI and returns the analysis. A
