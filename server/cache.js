@@ -46,15 +46,31 @@ if (cacheEnabled) {
       await db.execute("DELETE FROM analysis_cache WHERE key LIKE 'q:%'").catch(() => {});
       // Per-user library backup: just the song fingerprints (lyrics keys) and
       // saved/learnt word lists. The songs themselves live in analysis_cache.
+      // *_keys hold everything ever added; deleted_keys / removed_saved /
+      // removed_learnt are tombstones so a restore doesn't bring back things
+      // the user explicitly removed (see putUserLibrary).
       await db.execute(
         `CREATE TABLE IF NOT EXISTS user_libraries (
-          user_id    TEXT PRIMARY KEY,
-          song_keys  TEXT NOT NULL,
-          saved      TEXT NOT NULL,
-          learnt     TEXT NOT NULL,
-          updated_at TEXT NOT NULL
+          user_id        TEXT PRIMARY KEY,
+          song_keys      TEXT NOT NULL,
+          deleted_keys   TEXT NOT NULL DEFAULT '[]',
+          saved          TEXT NOT NULL,
+          learnt         TEXT NOT NULL,
+          removed_saved  TEXT NOT NULL DEFAULT '[]',
+          removed_learnt TEXT NOT NULL DEFAULT '[]',
+          updated_at     TEXT NOT NULL
         )`
       );
+      // One-time migrations for tables created before these columns existed.
+      await db
+        .execute("ALTER TABLE user_libraries ADD COLUMN deleted_keys TEXT NOT NULL DEFAULT '[]'")
+        .catch(() => {});
+      await db
+        .execute("ALTER TABLE user_libraries ADD COLUMN removed_saved TEXT NOT NULL DEFAULT '[]'")
+        .catch(() => {});
+      await db
+        .execute("ALTER TABLE user_libraries ADD COLUMN removed_learnt TEXT NOT NULL DEFAULT '[]'")
+        .catch(() => {});
     } catch (err) {
       logError('cache.init', err);
       db = null; // disable on failure so analyze still works
@@ -102,20 +118,24 @@ export async function putCached(key, { title, artist } = {}, analysis) {
 // The client owns its library; this table is a backup of just the references
 // (song fingerprints + saved/learnt words) so a redeploy can't lose them.
 
-export async function getUserLibrary(userId) {
+// Raw row, including all ever-added references. Used internally.
+async function getUserLibraryRow(userId) {
   if (!db || !userId) return null;
   try {
     await ready;
     const res = await db.execute({
-      sql: 'SELECT song_keys, saved, learnt FROM user_libraries WHERE user_id = ?',
+      sql: 'SELECT song_keys, deleted_keys, saved, learnt, removed_saved, removed_learnt FROM user_libraries WHERE user_id = ?',
       args: [userId],
     });
     if (!res.rows.length) return null;
     const r = res.rows[0];
     return {
       songKeys: JSON.parse(r.song_keys),
+      deletedKeys: JSON.parse(r.deleted_keys ?? '[]'),
       saved: JSON.parse(r.saved),
       learnt: JSON.parse(r.learnt),
+      removedSaved: JSON.parse(r.removed_saved ?? '[]'),
+      removedLearnt: JSON.parse(r.removed_learnt ?? '[]'),
     };
   } catch (err) {
     logError('userLib.get', err);
@@ -123,23 +143,63 @@ export async function getUserLibrary(userId) {
   }
 }
 
-export async function putUserLibrary(userId, { songKeys = [], saved = [], learnt = [] } = {}) {
+// The restore view: everything the user hasn't explicitly removed (all-time
+// sets minus tombstones), plus the tombstones so clients can mirror them.
+export async function getUserLibrary(userId) {
+  const row = await getUserLibraryRow(userId);
+  if (!row) return null;
+  const deleted = new Set(row.deletedKeys);
+  const removedSaved = new Set(row.removedSaved);
+  const removedLearnt = new Set(row.removedLearnt);
+  return {
+    ...row,
+    songKeys: row.songKeys.filter((k) => !deleted.has(k)),
+    saved: row.saved.filter((w) => !removedSaved.has(w)),
+    learnt: row.learnt.filter((w) => !removedLearnt.has(w)),
+  };
+}
+
+export async function putUserLibrary(
+  userId,
+  { songKeys = [], saved = [], learnt = [], deleteKeys = [], removeSaved = [], removeLearnt = [] } = {}
+) {
   if (!db || !userId) return;
   try {
     await ready;
-    // Merge song fingerprints with what's already stored: a device whose local
-    // library is empty or partially restored (e.g. analyses missing from the
-    // cache) must never be able to wipe songs out of the backup.
-    const existing = await getUserLibrary(userId);
+    // Merge, never replace: a device whose local library is empty or partially
+    // restored must not be able to wipe songs or words out of the backup.
+    // Removals are explicit (deleteKeys / removeSaved / removeLearnt) and
+    // recorded as tombstones, so a later restore excludes them. Anything the
+    // client currently holds is never treated as removed (this resurrects
+    // re-added songs / re-starred words).
+    const existing = await getUserLibraryRow(userId);
+    const heldSongs = new Set(songKeys);
+    const heldSaved = new Set(saved);
+    const heldLearnt = new Set(learnt);
     const mergedKeys = [...new Set([...(existing?.songKeys ?? []), ...songKeys])];
+    const mergedDeleted = [...new Set([...(existing?.deletedKeys ?? []), ...deleteKeys])].filter(
+      (k) => !heldSongs.has(k)
+    );
+    const mergedSaved = [...new Set([...(existing?.saved ?? []), ...saved])];
+    const mergedLearnt = [...new Set([...(existing?.learnt ?? []), ...learnt])];
+    const mergedRemovedSaved = [
+      ...new Set([...(existing?.removedSaved ?? []), ...removeSaved]),
+    ].filter((w) => !heldSaved.has(w));
+    const mergedRemovedLearnt = [
+      ...new Set([...(existing?.removedLearnt ?? []), ...removeLearnt]),
+    ].filter((w) => !heldLearnt.has(w));
     await db.execute({
-      sql: `INSERT OR REPLACE INTO user_libraries (user_id, song_keys, saved, learnt, updated_at)
-            VALUES (?, ?, ?, ?, ?)`,
+      sql: `INSERT OR REPLACE INTO user_libraries
+            (user_id, song_keys, deleted_keys, saved, learnt, removed_saved, removed_learnt, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         userId,
         JSON.stringify(mergedKeys),
-        JSON.stringify(saved),
-        JSON.stringify(learnt),
+        JSON.stringify(mergedDeleted),
+        JSON.stringify(mergedSaved),
+        JSON.stringify(mergedLearnt),
+        JSON.stringify(mergedRemovedSaved),
+        JSON.stringify(mergedRemovedLearnt),
         new Date().toISOString(),
       ],
     });

@@ -68,12 +68,19 @@ export async function getSaved() {
 export async function addSaved(word) {
   const set = new Set(await getSaved());
   set.add(normalize(word));
-  return kvSet('saved', [...set]);
+  await kvSet('saved', [...set]);
+  // Re-saving a word cancels its tombstone so the backup keeps it.
+  await removeRemovedSaved(normalize(word));
+  return [...set];
 }
 
 export async function removeSaved(word) {
-  const next = (await getSaved()).filter((w) => w !== normalize(word));
-  return kvSet('saved', next);
+  const w = normalize(word);
+  const next = (await getSaved()).filter((x) => x !== w);
+  await kvSet('saved', next);
+  // Record the removal as a tombstone so the backup drops it too.
+  await addRemovedSaved(w);
+  return next;
 }
 
 export async function getLearnt() {
@@ -83,12 +90,59 @@ export async function getLearnt() {
 export async function addLearnt(word) {
   const set = new Set(await getLearnt());
   set.add(normalize(word));
-  return kvSet('learnt', [...set]);
+  await kvSet('learnt', [...set]);
+  await removeRemovedLearnt(normalize(word));
+  return [...set];
 }
 
 export async function removeLearnt(word) {
-  const next = (await getLearnt()).filter((w) => w !== normalize(word));
-  return kvSet('learnt', next);
+  const w = normalize(word);
+  const next = (await getLearnt()).filter((x) => x !== w);
+  await kvSet('learnt', next);
+  await addRemovedLearnt(w);
+  return next;
+}
+
+// ---- removed-word tombstones ----------------------------------------------
+// Words the user explicitly un-saved / un-learnt, so a restore doesn't bring
+// them back. Mirrors the server's removed_saved / removed_learnt columns.
+
+export async function getRemovedSaved() {
+  return kvGet('removedSaved', []);
+}
+
+export async function addRemovedSaved(word) {
+  const set = new Set(await getRemovedSaved());
+  set.add(normalize(word));
+  return kvSet('removedSaved', [...set]);
+}
+
+export async function removeRemovedSaved(word) {
+  const next = (await getRemovedSaved()).filter((w) => w !== normalize(word));
+  return kvSet('removedSaved', next);
+}
+
+export async function setRemovedSaved(words) {
+  return kvSet('removedSaved', [...new Set((words ?? []).map(normalize))]);
+}
+
+export async function getRemovedLearnt() {
+  return kvGet('removedLearnt', []);
+}
+
+export async function addRemovedLearnt(word) {
+  const set = new Set(await getRemovedLearnt());
+  set.add(normalize(word));
+  return kvSet('removedLearnt', [...set]);
+}
+
+export async function removeRemovedLearnt(word) {
+  const next = (await getRemovedLearnt()).filter((w) => w !== normalize(word));
+  return kvSet('removedLearnt', next);
+}
+
+export async function setRemovedLearnt(words) {
+  return kvSet('removedLearnt', [...new Set((words ?? []).map(normalize))]);
 }
 
 // ---- settings -------------------------------------------------------------
@@ -152,8 +206,29 @@ function push(map, key, ref) {
 }
 
 export async function deleteSong(id) {
-  await (await dbPromise).delete('songs', id);
-  return true;
+  const db = await dbPromise;
+  const songs = await allSongs();
+  const song = songs.find((s) => s.id === id);
+  await db.delete('songs', id);
+  return song?.lyricsKey ?? null;
+}
+
+// ---- deleted song tombstones ----------------------------------------------
+// Fingerprints of songs the user explicitly deleted. Sent to the backup so a
+// restore doesn't bring deleted songs back, while the backup itself is add-only.
+
+export async function getDeleted() {
+  return kvGet('deleted', []);
+}
+
+export async function addDeleted(key) {
+  const set = new Set(await getDeleted());
+  set.add(normalize(key));
+  return kvSet('deleted', [...set]);
+}
+
+export async function setDeleted(keys) {
+  return kvSet('deleted', [...new Set((keys ?? []).map(normalize))]);
 }
 
 // The lyric fingerprints (lyricsKey) of every song in the library. This is the

@@ -300,7 +300,8 @@ export default function App() {
   }
 
   async function removeSong(id) {
-    await api.deleteSong(id);
+    const deletedKey = await api.deleteSong(id);
+    if (deletedKey) await api.addDeleted(deletedKey);
     if (current?.id === id) setCurrent(null);
     setSongs(await api.listSongs());
     api.schedulePush();

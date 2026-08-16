@@ -138,17 +138,33 @@ const EMPTY_KEYS = { deepseek: { set: false, source: null, hint: null } };
 let syncPromise = Promise.resolve();
 let pushTimer = null;
 
-// Uploads the full local library snapshot for the given user.
+// Uploads the full local library snapshot for the given user. Removals are
+// sent explicitly (deleteKeys / removeSaved / removeLearnt) so the backup can
+// drop them without letting an empty/partial device wipe everything.
 async function pushSnapshot(userId) {
-  const [songKeys, saved, learnt] = await Promise.all([
+  const [songKeys, saved, learnt, deleted, removedSaved, removedLearnt] = await Promise.all([
     store.songKeys(),
     store.getSaved(),
     store.getLearnt(),
+    store.getDeleted(),
+    store.getRemovedSaved(),
+    store.getRemovedLearnt(),
   ]);
+  const heldSongs = new Set(songKeys);
+  const heldSaved = new Set(saved);
+  const heldLearnt = new Set(learnt);
   await serverRequest('/api/user/library', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, songKeys, saved, learnt }),
+    body: JSON.stringify({
+      userId,
+      songKeys,
+      saved,
+      learnt,
+      deleteKeys: deleted.filter((k) => !heldSongs.has(k)),
+      removeSaved: removedSaved.filter((w) => !heldSaved.has(w)),
+      removeLearnt: removedLearnt.filter((w) => !heldLearnt.has(w)),
+    }),
   });
 }
 
@@ -220,6 +236,8 @@ export const api = {
   listSongs: () => store.listSongs(),
   getSong: (id) => store.getSong(id),
   deleteSong: (id) => store.deleteSong(id),
+  // Records a deleted song's fingerprint so the backup drops it too.
+  addDeleted: (key) => store.addDeleted(key),
 
   // --- per-user library backup (Turso) ---
   // Reads the user's saved reference list from the server.
@@ -275,6 +293,41 @@ export const api = {
         // Push the (merged/current) local state up so the backup stays fresh.
         await pushSnapshot(userId);
       }
+
+      // Mirror the server's tombstones (deleted songs + un-saved / un-learnt
+      // words): union with what this device knows, minus anything it currently
+      // holds — a restored/re-added item is by definition not removed.
+      const [
+        devDeleted,
+        devKeys,
+        devSaved,
+        devLearnt,
+        devRemovedSaved,
+        devRemovedLearnt,
+      ] = await Promise.all([
+        store.getDeleted(),
+        store.songKeys(),
+        store.getSaved(),
+        store.getLearnt(),
+        store.getRemovedSaved(),
+        store.getRemovedLearnt(),
+      ]);
+      const devHeldSongs = new Set(devKeys);
+      const devHeldSaved = new Set(devSaved);
+      const devHeldLearnt = new Set(devLearnt);
+      await store.setDeleted(
+        [...new Set([...devDeleted, ...(remote.deletedKeys ?? [])])].filter((k) => !devHeldSongs.has(k))
+      );
+      await store.setRemovedSaved(
+        [...new Set([...devRemovedSaved, ...(remote.removedSaved ?? [])])].filter(
+          (w) => !devHeldSaved.has(w)
+        )
+      );
+      await store.setRemovedLearnt(
+        [...new Set([...devRemovedLearnt, ...(remote.removedLearnt ?? [])])].filter(
+          (w) => !devHeldLearnt.has(w)
+        )
+      );
     })();
     syncPromise = run;
     return run;

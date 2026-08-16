@@ -91,12 +91,15 @@ app.get('/api/user/library', requirePassword, async (req, res) => {
 });
 
 app.put('/api/user/library', requirePassword, async (req, res) => {
-  const { userId, songKeys, saved, learnt } = req.body ?? {};
+  const { userId, songKeys, saved, learnt, deleteKeys, removeSaved, removeLearnt } = req.body ?? {};
   if (!userId?.trim()) return res.status(400).json({ error: 'Missing userId.' });
   await putUserLibrary(userId.trim(), {
     songKeys: Array.isArray(songKeys) ? songKeys : [],
     saved: Array.isArray(saved) ? saved : [],
     learnt: Array.isArray(learnt) ? learnt : [],
+    deleteKeys: Array.isArray(deleteKeys) ? deleteKeys : [],
+    removeSaved: Array.isArray(removeSaved) ? removeSaved : [],
+    removeLearnt: Array.isArray(removeLearnt) ? removeLearnt : [],
   });
   res.json({ ok: true });
 });
