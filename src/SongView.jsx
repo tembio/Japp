@@ -19,11 +19,6 @@ function findLineForWord(lines, word) {
 
 export const VOCAB_GROUP_ORDER = ['Nouns', 'Verbs', 'Adjectives', 'Adverbs', 'Expressions', 'Other'];
 
-// On hover-capable devices (desktop) tooltips are pure CSS hover; tap-to-open
-// is only for touch screens. Evaluated live so devtools mobile emulation and
-// convertible devices are detected correctly.
-const isTouch = () => window.matchMedia('(hover: none)').matches;
-
 function useMediaQuery(query) {
   const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
@@ -50,7 +45,7 @@ export function vocabGroup(partOfSpeech = '') {
 // Splits the displayed line into plain text and interactive word spans by
 // walking the AI's word segmentation in order. Tokens that can't be located
 // in the text (model mismatch) degrade to plain text.
-function LineText({ line, script, lineIdx, openId, setOpenId, onHold }) {
+function LineText({ line, script, lineIdx, openId, setOpenId, onHold, saved, onToggleSaved }) {
   const text = line[script] ?? '';
   const field = script === 'kana' ? 'reading' : script === 'romaji' ? 'romaji' : 'word';
   const tokens = (line.words ?? []).filter((t) => t[field]?.trim());
@@ -95,12 +90,12 @@ function LineText({ line, script, lineIdx, openId, setOpenId, onHold }) {
     if (typeof part === 'string') return part;
     const { token, surface, id } = part;
     return (
-      <Token key={k} token={token} surface={surface} id={id} openId={openId} setOpenId={setOpenId} onHold={onHold} />
+      <Token key={k} token={token} surface={surface} id={id} openId={openId} setOpenId={setOpenId} onHold={onHold} saved={saved} onToggleSaved={onToggleSaved} />
     );
   });
 }
 
-function Token({ token, surface, id, openId, setOpenId, onHold }) {
+function Token({ token, surface, id, openId, setOpenId, onHold, saved, onToggleSaved }) {
   const ref = useRef(null);
   const [shift, setShift] = useState(0);
   const [below, setBelow] = useState(false);
@@ -157,7 +152,6 @@ function Token({ token, surface, id, openId, setOpenId, onHold }) {
           e.stopPropagation();
           return;
         }
-        if (!isTouch()) return;
         e.stopPropagation();
         setOpenId(openId === id ? null : id);
         clampTip();
@@ -169,6 +163,18 @@ function Token({ token, surface, id, openId, setOpenId, onHold }) {
         style={{ transform: `translateX(calc(-50% + ${shift}px))` }}
       >
         <span className="tip-inner">
+          {onToggleSaved && (
+            <button
+              className={`tip-save ${saved.has(normWord(token.word)) ? 'on' : ''}`}
+              title={saved.has(normWord(token.word)) ? 'Remove from Words' : 'Save to Words'}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSaved(token.word);
+              }}
+            >
+              {saved.has(normWord(token.word)) ? '★' : '☆'}
+            </button>
+          )}
           <span className="tip-word jp">{token.word}</span>
           {token.reading && token.reading !== token.word && (
             <span className="tip-reading jp">{token.reading}</span>
@@ -717,6 +723,8 @@ export default function SongView({
                       openId={openTokenId}
                       setOpenId={setOpenTokenId}
                       onHold={jumpToVocab}
+                      saved={saved}
+                      onToggleSaved={toggleSaved}
                     />
                   </p>
                   {showRomaji && line.romaji?.trim() && (
