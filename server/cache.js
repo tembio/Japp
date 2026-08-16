@@ -127,12 +127,17 @@ export async function putUserLibrary(userId, { songKeys = [], saved = [], learnt
   if (!db || !userId) return;
   try {
     await ready;
+    // Merge song fingerprints with what's already stored: a device whose local
+    // library is empty or partially restored (e.g. analyses missing from the
+    // cache) must never be able to wipe songs out of the backup.
+    const existing = await getUserLibrary(userId);
+    const mergedKeys = [...new Set([...(existing?.songKeys ?? []), ...songKeys])];
     await db.execute({
       sql: `INSERT OR REPLACE INTO user_libraries (user_id, song_keys, saved, learnt, updated_at)
             VALUES (?, ?, ?, ?, ?)`,
       args: [
         userId,
-        JSON.stringify(songKeys),
+        JSON.stringify(mergedKeys),
         JSON.stringify(saved),
         JSON.stringify(learnt),
         new Date().toISOString(),
